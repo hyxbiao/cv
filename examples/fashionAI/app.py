@@ -3,32 +3,32 @@ from __future__ import print_function
 import os
 import sys
 
+import numpy as np
+import pandas as pd
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 from imgcv import resnet
 
-HEIGHT = 32
-WIDTH = 32
+HEIGHT = 224
+WIDTH = 224
 NUM_CHANNELS = 3
 DEFAULT_IMAGE_BYTES = HEIGHT * WIDTH * NUM_CHANNELS
 # The record is the image plus a one-byte label
 RECORD_BYTES = DEFAULT_IMAGE_BYTES + 1
-NUM_CLASSES = 10
+NUM_CLASSES = 6
 NUM_DATA_FILES = 5
 
 NUM_IMAGES = {
-    'train': 50000,
-    'validation': 10000,
+    'train': 10110,
+    'validation': 1153,
 }
 
 
-class Cifar10DataSet(resnet.DataSet):
-    def __init__(self, flags):
-        super(Cifar10DataSet, self).__init__(flags)
+class FashionAIDataSet(resnet.DataSet):
+    CSV_TYPES = [[''], [''], ['']]
+    CSV_COLUMN_NAMES = ['image', 'key', 'value']
 
-    def synth_input_fn(self, mode, num_epochs=1):
-        images = tf.zeros((self.batch_size, HEIGHT, WIDTH, NUM_CHANNELS), tf.float32)
-        labels = tf.zeros((self.batch_size, NUM_CLASSES), tf.int32)
-        return tf.data.Dataset.from_tensors((images, labels)).repeat()
+    def __init__(self, flags):
+        super(FashionAIDataSet, self).__init__(flags)
 
     def input_fn(self, mode, num_epochs=1):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
@@ -41,45 +41,51 @@ class Cifar10DataSet(resnet.DataSet):
 
     def get_raw_input(self, mode):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        filenames = self.get_filenames(is_training, self.flags.data_dir)
-        dataset = tf.data.FixedLengthRecordDataset(filenames, RECORD_BYTES)
+        data_dir, meta_file = self.get_filenames(is_training, self.flags.data_dir)
+
+        if is_training:
+            value_func = lambda x: x.index('y')
+        else:
+            value_func = lambda x: np.argmax(map(float, x.split(';')))
+        converters = {
+            'image': lambda x: os.path.join(data_dir, x),
+            'value': value_func
+        }
+        df = pd.read_csv(meta_file, names=self.CSV_COLUMN_NAMES, header=0, converters=converters)
+        df = df[df['key'] == 'skirt_length_labels']
+        label = df.pop('value')
+        dataset = tf.data.Dataset.from_tensor_slices((dict(df), label))
+
+        dataset = dataset.map(lambda meta, label: self.parse_csv_record(meta, label, data_dir))
+        #dataset = tf.data.FixedLengthRecordDataset(filenames, RECORD_BYTES)
 
         return dataset
 
     def get_filenames(self, is_training, data_dir):
         """Returns a list of filenames."""
-        data_dir = os.path.join(data_dir, 'cifar-10-batches-bin')
-
-        assert os.path.exists(data_dir), (
-            'Run cifar10_download_and_extract.py first to download and extract the '
-            'CIFAR-10 data.')
-
         if is_training:
-            return [
-                os.path.join(data_dir, 'data_batch_%d.bin' % i)
-                for i in range(1, NUM_DATA_FILES + 1)
-            ]
+            data_dir = os.path.join(data_dir, 'web')
+            return (data_dir, os.path.join(data_dir, 'Annotations/skirt_length_labels.csv'))
         else:
-            return [os.path.join(data_dir, 'test_batch.bin')]
+            data_dir = os.path.join(data_dir, 'rank')
+            return (data_dir, os.path.join(data_dir, 'Tests/answer_mock.csv'))
+
+    def parse_csv_record(self, meta, label, data_dir):
+        label = tf.cast(label, dtype=tf.int32)
+        image = tf.read_file(meta['image'])
+        image = tf.image.decode_jpeg(image, NUM_CHANNELS)
+        return {'image': image, 'label': label}
 
     def parse_record(self, mode, record):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
-        # Convert bytes to a vector of uint8 that is record_bytes long.
-        record_vector = tf.decode_raw(record, tf.uint8)
-
-        # The first byte represents the label, which we convert from uint8 to int32
         # and then to one-hot.
-        label = tf.cast(record_vector[0], tf.int32)
+        label = record['label']
         label = tf.one_hot(label, NUM_CLASSES)
 
-        # The remaining bytes after the label represent the image, which we reshape
-        # from [depth * height * width] to [depth, height, width].
-        depth_major = tf.reshape(record_vector[1:RECORD_BYTES],
-                               [NUM_CHANNELS, HEIGHT, WIDTH])
 
-        # Convert from [depth, height, width] to [height, width, depth], and cast as
-        # float32.
-        image = tf.cast(tf.transpose(depth_major, [1, 2, 0]), tf.float32)
+        image = record['image']
+        #image = tf.image.resize_images(image, (HEIGHT, WIDTH))
+        image = tf.cast(image, dtype=tf.float32)
 
         image = self.preprocess_image(image, is_training)
 
@@ -91,6 +97,8 @@ class Cifar10DataSet(resnet.DataSet):
             # Resize the image to add four extra pixels on each side.
             image = tf.image.resize_image_with_crop_or_pad(
                     image, HEIGHT + 8, WIDTH + 8)
+        else:
+            image = tf.image.resize_images(image, (HEIGHT, WIDTH))
 
         # Randomly crop a [_HEIGHT, _WIDTH] section of the image.
         image = tf.random_crop(image, [HEIGHT, WIDTH, NUM_CHANNELS])
@@ -103,7 +111,7 @@ class Cifar10DataSet(resnet.DataSet):
         return image
 
 
-class Cifar10Model(resnet.Model):
+class FashionAIModel(resnet.Model):
 
     def __init__(self, resnet_size, data_format=None, num_classes=NUM_CLASSES,
            version=resnet.Model.DEFAULT_VERSION):
@@ -112,7 +120,7 @@ class Cifar10Model(resnet.Model):
 
         num_blocks = (resnet_size - 2) // 6
 
-        super(Cifar10Model, self).__init__(
+        super(FashionAIModel, self).__init__(
             resnet_size=resnet_size,
             bottleneck=False,
             num_classes=num_classes,
@@ -130,9 +138,9 @@ class Cifar10Model(resnet.Model):
             data_format=data_format)
 
 
-class Cifar10Estimator(resnet.Estimator):
+class FashionAIEstimator(resnet.Estimator):
     def __init__(self, flags):
-        super(Cifar10Estimator, self).__init__(flags, model_class=Cifar10Model, weight_decay=2e-4)
+        super(FashionAIEstimator, self).__init__(flags, model_class=FashionAIModel, weight_decay=2e-4)
 
         self.batch_size = flags.batch_size
 
@@ -160,13 +168,24 @@ class Cifar10Estimator(resnet.Estimator):
 
     def model_fn(self, features, labels, mode, params):
         features = tf.reshape(features, [-1, HEIGHT, WIDTH, NUM_CHANNELS])
-        return super(Cifar10Estimator, self).model_fn(features, labels, mode, params)
+        return super(FashionAIEstimator, self).model_fn(features, labels, mode, params)
 
+
+def test(dataset):
+    mode = tf.estimator.ModeKeys.TRAIN
+    ds = dataset.input_fn(mode, 1)
+    data = ds.make_one_shot_iterator().get_next()
+    print(data[0])
+    print(data[1])
+    return
+    with tf.Session() as sess:
+        data = sess.run([data])
+    #print(data)
 
 def main(argv):
     parser = resnet.ArgParser()
-    parser.set_defaults(data_dir='/tmp/cifar10_data',
-                        model_dir='./model_cifar10',
+    parser.set_defaults(data_dir='/tmp/data/fashionAI',
+                        model_dir='./model_skirt',
                         resnet_size=32,
                         train_epochs=250,
                         epochs_between_evals=10,
@@ -174,33 +193,11 @@ def main(argv):
 
     flags = parser.parse_args(args=argv[1:])
 
-    estimator = Cifar10Estimator(flags)
+    estimator = FashionAIEstimator(flags)
 
-    dataset = Cifar10DataSet(flags)
-
-
-    '''
-    mode = tf.estimator.ModeKeys.TRAIN
-    ds = dataset.input_fn(mode, 1)
-    #data = ds.make_one_shot_iterator().get_next()
-    #with tf.Session() as sess:
-    #    data = sess.run([data])
-    #print(data)
-    #return
-    image, label = ds.make_one_shot_iterator().get_next()
-    with tf.Session() as sess:
-        image, label = sess.run([image, label])
-
-    print('image')
-    print(image)
-    #features = tf.reshape(features, [-1, HEIGHT, WIDTH, NUM_CHANNELS])
-    print(label)
-
-    return
-    '''
+    dataset = FashionAIDataSet(flags)
 
     runner = resnet.Runner(flags, estimator.model_fn, dataset.input_fn)
-    #runner = resnet.Runner(flags, estimator.model_fn, dataset.synth_input_fn)
     runner.run()
 
 

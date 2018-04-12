@@ -20,7 +20,7 @@ from __future__ import print_function
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
-from official.utils.logs import logger
+from imgcv.utils.logs import logger
 
 
 class LoggingMetricHook(tf.train.LoggingTensorHook):
