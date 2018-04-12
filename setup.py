@@ -11,7 +11,7 @@ install_requires = [
 
 setup(
     name = "imgcv",
-    version = "0.0.1",
+    version = "1.0.0",
     description = 'image computer visior',
     author='Hyxbiao',
     author_email="hyxbiao@gmail.com",
