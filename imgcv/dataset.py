@@ -22,3 +22,6 @@ class EstimatorDataSet(BaseDataSet):
     def parse_record(self, mode, record):
         raise NotImplementedError
 
+    def debug_fn(self):
+        return False
+

@@ -7,6 +7,15 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 from imgcv import resnet
+from imgcv.utils import preprocess as pp
+
+_RESIZE_MIN = 256
+
+_R_MEAN = 123.68
+_G_MEAN = 116.78
+_B_MEAN = 103.94
+_CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
+
 
 HEIGHT = 224
 WIDTH = 224
@@ -29,6 +38,11 @@ class FashionAIDataSet(resnet.DataSet):
 
     def __init__(self, flags):
         super(FashionAIDataSet, self).__init__(flags)
+
+    def debug_fn(self):
+        mode = tf.estimator.ModeKeys.TRAIN
+        dataset = self.input_fn(mode)
+        return dataset
 
     def input_fn(self, mode, num_epochs=1):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
@@ -72,9 +86,8 @@ class FashionAIDataSet(resnet.DataSet):
 
     def parse_csv_record(self, meta, label, data_dir):
         label = tf.cast(label, dtype=tf.int32)
-        image = tf.read_file(meta['image'])
-        image = tf.image.decode_jpeg(image, NUM_CHANNELS)
-        return {'image': image, 'label': label}
+        image_buffer = tf.read_file(meta['image'])
+        return {'image': image_buffer, 'label': label}
 
     def parse_record(self, mode, record):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
@@ -82,17 +95,29 @@ class FashionAIDataSet(resnet.DataSet):
         label = record['label']
         label = tf.one_hot(label, NUM_CLASSES)
 
-
-        image = record['image']
-        #image = tf.image.resize_images(image, (HEIGHT, WIDTH))
-        image = tf.cast(image, dtype=tf.float32)
-
-        image = self.preprocess_image(image, is_training)
+        image_buffer = record['image']
+        image = self.preprocess_image(image_buffer, is_training)
 
         return image, label
 
-    def preprocess_image(self, image, is_training):
+    def preprocess_image(self, image_buffer, is_training):
+        if is_training:
+            image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
+            image = pp.image.aspect_preserving_resize(image, _RESIZE_MIN)
+            image = tf.random_crop(image, [HEIGHT, WIDTH, NUM_CHANNELS])
+            image = tf.image.random_flip_left_right(image)
+        else:
+            image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
+            image = pp.image.aspect_preserving_resize(image, _RESIZE_MIN)
+            image = pp.image.central_crop(image, HEIGHT, WIDTH)
+            
+        image.set_shape([HEIGHT, WIDTH, NUM_CHANNELS])
+
+        return pp.image.mean_image_subtraction(image, _CHANNEL_MEANS, NUM_CHANNELS)
+
+    def preprocess_image_bakup(self, image, is_training):
         """Preprocess a single image of layout [height, width, depth]."""
+        image = tf.image.decode_jpeg(image, channels=NUM_CHANNELS)
         if is_training:
             # Resize the image to add four extra pixels on each side.
             image = tf.image.resize_image_with_crop_or_pad(
@@ -197,7 +222,7 @@ def main(argv):
 
     dataset = FashionAIDataSet(flags)
 
-    runner = resnet.Runner(flags, estimator.model_fn, dataset.input_fn)
+    runner = resnet.Runner(flags, estimator, dataset)
     runner.run()
 
 

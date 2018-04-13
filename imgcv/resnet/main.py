@@ -41,6 +41,7 @@ class ArgParser(argparse.ArgumentParser):
             parsers.ImageModelParser(),
             parsers.ExportParser(),
             parsers.BenchmarkParser(),
+            parsers.DebugParser(),
         ])
 
         self.add_argument(
@@ -59,12 +60,13 @@ class ArgParser(argparse.ArgumentParser):
 
 class Runner(EstimatorRunner):
 
-    def __init__(self, flags, model_function, input_function):
-        super(Runner, self).__init__(flags, model_function, input_function)
+    def __init__(self, flags, estimator, dataset, shape=None):
+        super(Runner, self).__init__(flags, estimator, dataset)
 
-        self.classifier = None
-        self.shape = None
-        self.setup()
+        self.model_function = estimator.model_fn
+        self.input_function = dataset.input_fn
+        self.shape = shape
+        self.classifier = self.setup()
 
     def setup(self):
         # Using the Winograd non-fused algorithms provides a small performance boost.
@@ -92,7 +94,7 @@ class Runner(EstimatorRunner):
         # Set up a RunConfig to save checkpoint and set session config.
         run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,
                                                     session_config=session_config)
-        self.classifier = tf.estimator.Estimator(
+        classifier = tf.estimator.Estimator(
             model_fn=self.model_function, model_dir=self.flags.model_dir, config=run_config,
             params={
               'resnet_size': self.flags.resnet_size,
@@ -101,8 +103,9 @@ class Runner(EstimatorRunner):
               'multi_gpu': self.flags.multi_gpu,
               'version': self.flags.version,
             })
+        return classifier
 
-    def run(self):
+    def run_internal(self):
         if self.flags.benchmark_log_dir is not None:
             benchmark_logger = logger.BenchmarkLogger(self.flags.benchmark_log_dir)
             benchmark_logger.log_run_info("resnet")
