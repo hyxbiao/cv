@@ -41,7 +41,6 @@ class ArgParser(argparse.ArgumentParser):
             parsers.ImageModelParser(),
             parsers.ExportParser(),
             parsers.BenchmarkParser(),
-            parsers.DebugParser(),
         ])
 
         self.add_argument(
@@ -105,7 +104,7 @@ class Runner(EstimatorRunner):
             })
         return classifier
 
-    def run_internal(self):
+    def run(self):
         if self.flags.benchmark_log_dir is not None:
             benchmark_logger = logger.BenchmarkLogger(self.flags.benchmark_log_dir)
             benchmark_logger.log_run_info("resnet")

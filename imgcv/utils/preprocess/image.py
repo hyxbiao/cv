@@ -5,6 +5,10 @@ import sys
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
+VERTICAL_CENTER = 0
+VERTICAL_TOP    = 1
+VERTICAL_DOWN   = 2
+
 def decode_crop_and_flip(image_buffer, bbox, num_channels):
     """Crops the given image to a random part of the image, and randomly flips.
 
@@ -53,7 +57,7 @@ def decode_crop_and_flip(image_buffer, bbox, num_channels):
     cropped = tf.image.random_flip_left_right(cropped)
     return cropped
 
-def central_crop(image, crop_height, crop_width):
+def central_crop(image, crop_height, crop_width, vertical=VERTICAL_CENTER):
     """Performs central crops of the given image list.
 
     Args:
@@ -68,7 +72,12 @@ def central_crop(image, crop_height, crop_width):
     height, width = shape[0], shape[1]
 
     amount_to_be_cropped_h = (height - crop_height)
-    crop_top = amount_to_be_cropped_h // 2
+    if vertical == VERTICAL_CENTER:
+        crop_top = amount_to_be_cropped_h // 2
+    elif vertical == VERTICAL_TOP:
+        crop_top = 0
+    else:
+        crop_top = amount_to_be_cropped_h
     amount_to_be_cropped_w = (width - crop_width)
     crop_left = amount_to_be_cropped_w // 2
     return tf.slice(

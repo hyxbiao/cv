@@ -41,7 +41,10 @@ class FashionAIDataSet(resnet.DataSet):
 
     def debug_fn(self):
         mode = tf.estimator.ModeKeys.TRAIN
-        dataset = self.input_fn(mode)
+        dataset = self.get_raw_input(mode)
+        #dataset = self.input_fn(mode)
+        dataset = dataset.map(lambda value: self.parse_record(mode, value),
+                            num_parallel_calls=self.num_parallel_calls)
         return dataset
 
     def input_fn(self, mode, num_epochs=1):
@@ -69,6 +72,8 @@ class FashionAIDataSet(resnet.DataSet):
         df = df[df['key'] == 'skirt_length_labels']
         label = df.pop('value')
         dataset = tf.data.Dataset.from_tensor_slices((dict(df), label))
+        if is_training:
+            dataset = dataset.shuffle(buffer_size=df.shape[0])
 
         dataset = dataset.map(lambda meta, label: self.parse_csv_record(meta, label, data_dir))
         #dataset = tf.data.FixedLengthRecordDataset(filenames, RECORD_BYTES)
@@ -87,6 +92,8 @@ class FashionAIDataSet(resnet.DataSet):
     def parse_csv_record(self, meta, label, data_dir):
         label = tf.cast(label, dtype=tf.int32)
         image_buffer = tf.read_file(meta['image'])
+        if self.flags.debug:
+            return {'path': meta['image'], 'image': image_buffer, 'label': label}
         return {'image': image_buffer, 'label': label}
 
     def parse_record(self, mode, record):
@@ -98,41 +105,50 @@ class FashionAIDataSet(resnet.DataSet):
         image_buffer = record['image']
         image = self.preprocess_image(image_buffer, is_training)
 
+        if self.flags.debug:
+            return image, record['label'], record['path']
         return image, label
 
     def preprocess_image(self, image_buffer, is_training):
         if is_training:
-            image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
-            image = pp.image.aspect_preserving_resize(image, _RESIZE_MIN)
-            image = tf.random_crop(image, [HEIGHT, WIDTH, NUM_CHANNELS])
-            image = tf.image.random_flip_left_right(image)
+            raw_image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
+            small_image = pp.image.aspect_preserving_resize(raw_image, _RESIZE_MIN)
+            #crop_image = tf.random_crop(small_image, [HEIGHT, WIDTH, NUM_CHANNELS])
+            crop_image = pp.image.central_crop(small_image, HEIGHT, WIDTH, vertical=pp.image.VERTICAL_TOP)
+            image = tf.image.random_flip_left_right(crop_image)
         else:
-            image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
-            image = pp.image.aspect_preserving_resize(image, _RESIZE_MIN)
-            image = pp.image.central_crop(image, HEIGHT, WIDTH)
+            raw_image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
+            small_image = pp.image.aspect_preserving_resize(raw_image, _RESIZE_MIN)
+            #image = pp.image.central_crop(small_image, HEIGHT, WIDTH)
+            image = pp.image.central_crop(small_image, HEIGHT, WIDTH, vertical=pp.image.VERTICAL_TOP)
             
         image.set_shape([HEIGHT, WIDTH, NUM_CHANNELS])
 
-        return pp.image.mean_image_subtraction(image, _CHANNEL_MEANS, NUM_CHANNELS)
+        image = pp.image.mean_image_subtraction(image, _CHANNEL_MEANS, NUM_CHANNELS)
+        if self.flags.debug:
+            return raw_image, small_image, image
+        return image
 
-    def preprocess_image_bakup(self, image, is_training):
+    def preprocess_image_v1(self, image, is_training):
         """Preprocess a single image of layout [height, width, depth]."""
-        image = tf.image.decode_jpeg(image, channels=NUM_CHANNELS)
+        raw_image = tf.image.decode_jpeg(image, channels=NUM_CHANNELS)
         if is_training:
             # Resize the image to add four extra pixels on each side.
-            image = tf.image.resize_image_with_crop_or_pad(
-                    image, HEIGHT + 8, WIDTH + 8)
+            resize_image = tf.image.resize_image_with_crop_or_pad(
+                    raw_image, HEIGHT + 8, WIDTH + 8)
         else:
-            image = tf.image.resize_images(image, (HEIGHT, WIDTH))
+            resize_image = tf.image.resize_images(raw_image, (HEIGHT, WIDTH))
 
         # Randomly crop a [_HEIGHT, _WIDTH] section of the image.
-        image = tf.random_crop(image, [HEIGHT, WIDTH, NUM_CHANNELS])
+        crop_image = tf.random_crop(resize_image, [HEIGHT, WIDTH, NUM_CHANNELS])
 
         # Randomly flip the image horizontally.
-        image = tf.image.random_flip_left_right(image)
+        image = tf.image.random_flip_left_right(crop_image)
 
         # Subtract off the mean and divide by the variance of the pixels.
         image = tf.image.per_image_standardization(image)
+        if self.flags.debug:
+            return raw_image, resize_image, crop_image, image
         return image
 
 
@@ -196,21 +212,83 @@ class FashionAIEstimator(resnet.Estimator):
         return super(FashionAIEstimator, self).model_fn(features, labels, mode, params)
 
 
-def test(dataset):
-    mode = tf.estimator.ModeKeys.TRAIN
-    ds = dataset.input_fn(mode, 1)
-    data = ds.make_one_shot_iterator().get_next()
-    print(data[0])
-    print(data[1])
-    return
-    with tf.Session() as sess:
-        data = sess.run([data])
-    #print(data)
+class FashionAIRunner(resnet.Runner):
+    def __init__(self, flags, estimator, dataset):
+        shape = None
+        super(FashionAIRunner, self).__init__(flags, estimator, dataset, shape)
+
+    def run(self):
+        if self._run_debug():
+            tf.logging.info('run debug finish')
+            return
+        super(FashionAIRunner, self).run()
+
+    def _run_debug(self):
+        if not self.flags.debug:
+            return False
+
+        ds = self.dataset.debug_fn()
+        data = ds.make_one_shot_iterator().get_next()
+
+        tf.logging.info(data)
+
+        writer = tf.summary.FileWriter('./debug')
+        
+        '''
+        for i in range(len(data[0])):
+            name = 'image{}'.format(i)
+            #name = 'image'
+            family = 'image'
+            image = tf.expand_dims(data[0][i], 0)
+            summary_op = tf.summary.image(name, image, max_outputs=3, family=family)
+            #summary_op = tf.summary.image(name, image, max_outputs=3)
+        #tf.summary.image('image', tf.stack(data[0]), max_outputs=3)
+        tf.summary.text("path", data[-1])
+
+        summary_op = tf.summary.merge_all()
+        '''
+
+        with tf.Session() as sess:
+            for step in range(10):
+                #label = sess.run(data[-2])
+                #path = sess.run(data[-1])
+                sops = []
+                image_count = len(data[0])
+                for i in range(image_count):
+                    #name = '{}_{}_{}'.format(i, label, path)
+                    name = '{}'.format(i)
+                    family = 'step{}'.format(step)
+                    image = tf.expand_dims(data[0][i], 0)
+                    sop = tf.summary.image(name, image, max_outputs=image_count, family=family)
+                    sops.append(sop)
+                sop = tf.summary.scalar("label", data[-2])
+                sops.append(sop)
+                sop = tf.summary.text("path", data[-1])
+                sops.append(sop)
+                summary_op = tf.summary.merge(sops)
+                summary = sess.run(summary_op)
+                writer.add_summary(summary, step)
+                step += 1
+
+        writer.close()
+        return True
+
+
+class FashionAIArgParser(resnet.ArgParser):
+    def __init__(self):
+        super(FashionAIArgParser, self).__init__()
+        self.add_argument(
+            '--debug', '-dg', action='store_true',
+            default=False,
+            help='Debug'
+        )
+
+
 
 def main(argv):
-    parser = resnet.ArgParser()
+    parser = FashionAIArgParser()
     parser.set_defaults(data_dir='/tmp/data/fashionAI',
-                        model_dir='./model_skirt',
+                        model_dir='./model_skirt2',
                         resnet_size=32,
                         train_epochs=250,
                         epochs_between_evals=10,
@@ -222,7 +300,7 @@ def main(argv):
 
     dataset = FashionAIDataSet(flags)
 
-    runner = resnet.Runner(flags, estimator, dataset)
+    runner = FashionAIRunner(flags, estimator, dataset)
     runner.run()
 
 
