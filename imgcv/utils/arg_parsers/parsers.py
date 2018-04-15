@@ -293,23 +293,29 @@ class BenchmarkParser(argparse.ArgumentParser):
             )
 
 
-class DebugParser(argparse.ArgumentParser):
-    """Default parser for specification image specific behavior.
+class PreTrainParser(argparse.ArgumentParser):
+    """PrTrain parser
 
     Args:
         add_help: Create the "--help" flag. False if class instance is a parent.
     """
 
-    def __init__(self, add_help=False, debug_dataset=True):
-        super(DebugParser, self).__init__(add_help=add_help)
-        if debug_dataset:
+    def __init__(self, add_help=False, pretrain=True):
+        super(PreTrainParser, self).__init__(add_help=add_help)
+        if pretrain:
             self.add_argument(
-                    "--debug_dataset", "-dds",
-                    default=None,
-                    choices=["one_shot", "batch"],
-                    help="debug dataset",
-                    metavar="<DDS>"
+                    "--pretrain_model_dir", "-pmd", default=None,
+                    help="The location of the pretrain model checkpoint",
+                    metavar="<PMT>"
             )
+            self.add_argument(
+                    "--pretrain_warm_vars", "-pwv", default=".*",
+                    help="pretrain model warn start vars",
+                    metavar="<PWV>"
+            )
+
+
+
 
 
 

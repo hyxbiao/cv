@@ -136,6 +136,9 @@ class Cifar10Estimator(resnet.Estimator):
 
         self.batch_size = flags.batch_size
 
+    def loss_filter_fn(self, name):
+        return True
+
     def optimizer_fn(self, learning_rate):
         optimizer = tf.train.MomentumOptimizer(
                 learning_rate=learning_rate,
@@ -199,7 +202,7 @@ def main(argv):
     return
     '''
 
-    runner = resnet.Runner(flags, estimator.model_fn, dataset.input_fn)
+    runner = resnet.Runner(flags, estimator, dataset)
     #runner = resnet.Runner(flags, estimator.model_fn, dataset.synth_input_fn)
     runner.run()
 

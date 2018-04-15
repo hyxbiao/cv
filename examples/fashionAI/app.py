@@ -30,6 +30,7 @@ NUM_IMAGES = {
     'train': 10110,
     'validation': 1153,
 }
+_SHUFFLE_BUFFER = 1500
 
 
 class FashionAIDataSet(resnet.DataSet):
@@ -50,7 +51,7 @@ class FashionAIDataSet(resnet.DataSet):
     def input_fn(self, mode, num_epochs=1):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)
         num_images = is_training and NUM_IMAGES['train'] or NUM_IMAGES['validation']
-        shuffle_buffer = NUM_IMAGES['train']
+        shuffle_buffer = _SHUFFLE_BUFFER
 
         dataset = self.get_raw_input(mode)
         dataset = self.process(dataset, mode, shuffle_buffer, num_epochs, num_images)
@@ -156,32 +157,68 @@ class FashionAIModel(resnet.Model):
 
     def __init__(self, resnet_size, data_format=None, num_classes=NUM_CLASSES,
            version=resnet.Model.DEFAULT_VERSION):
-        if resnet_size % 6 != 2:
-            raise ValueError('resnet_size must be 6n + 2:', resnet_size)
-
-        num_blocks = (resnet_size - 2) // 6
+        # For bigger models, we want to use "bottleneck" layers
+        if resnet_size < 50:
+            bottleneck = False
+            final_size = 512
+        else:
+            bottleneck = True
+            final_size = 2048
 
         super(FashionAIModel, self).__init__(
             resnet_size=resnet_size,
-            bottleneck=False,
+            bottleneck=bottleneck,
             num_classes=num_classes,
-            num_filters=16,
-            kernel_size=3,
-            conv_stride=1,
-            first_pool_size=None,
-            first_pool_stride=None,
-            second_pool_size=8,
+            num_filters=64,
+            kernel_size=7,
+            conv_stride=2,
+            first_pool_size=3,
+            first_pool_stride=2,
+            second_pool_size=7,
             second_pool_stride=1,
-            block_sizes=[num_blocks] * 3,
-            block_strides=[1, 2, 2],
-            final_size=64,
+            block_sizes=self.get_block_sizes(resnet_size),
+            block_strides=[1, 2, 2, 2],
+            final_size=final_size,
             version=version,
             data_format=data_format)
+
+    def get_block_sizes(self, resnet_size):
+        """Retrieve the size of each block_layer in the ResNet model.
+
+        The number of block layers used for the Resnet model varies according
+        to the size of the model. This helper grabs the layer set we want, throwing
+        an error if a non-standard size has been selected.
+
+        Args:
+            resnet_size: The number of convolutional layers needed in the model.
+
+        Returns:
+            A list of block sizes to use in building the model.
+
+        Raises:
+            KeyError: if invalid resnet_size is received.
+        """
+        choices = {
+          18: [2, 2, 2, 2],
+          34: [3, 4, 6, 3],
+          50: [3, 4, 6, 3],
+          101: [3, 4, 23, 3],
+          152: [3, 8, 36, 3],
+          200: [3, 24, 36, 3]
+        }
+
+        try:
+            return choices[resnet_size]
+        except KeyError:
+            err = ('Could not find layers for selected Resnet size.\n'
+                   'Size received: {}; sizes allowed: {}.'.format(
+                       resnet_size, choices.keys()))
+            raise ValueError(err)
 
 
 class FashionAIEstimator(resnet.Estimator):
     def __init__(self, flags):
-        super(FashionAIEstimator, self).__init__(flags, model_class=FashionAIModel, weight_decay=2e-4)
+        super(FashionAIEstimator, self).__init__(flags, model_class=FashionAIModel, weight_decay=1e-4)
 
         self.batch_size = flags.batch_size
 
@@ -192,10 +229,10 @@ class FashionAIEstimator(resnet.Estimator):
         return optimizer
 
     def learning_rate_fn(self, global_step):
-        batch_denom = 128
+        batch_denom = 256
         num_images = NUM_IMAGES['train']
-        boundary_epochs = [100, 150, 200]
-        decay_rates = [1, 0.1, 0.01, 0.001]
+        boundary_epochs = [30, 60, 80, 90]
+        decay_rates = [1, 0.1, 0.01, 0.001, 1e-4]
 
         initial_learning_rate = 0.1 * self.batch_size / batch_denom
         batches_per_epoch = num_images / self.batch_size
@@ -208,7 +245,6 @@ class FashionAIEstimator(resnet.Estimator):
         return tf.train.piecewise_constant(global_step, boundaries, vals)
 
     def model_fn(self, features, labels, mode, params):
-        features = tf.reshape(features, [-1, HEIGHT, WIDTH, NUM_CHANNELS])
         return super(FashionAIEstimator, self).model_fn(features, labels, mode, params)
 
 
@@ -288,11 +324,9 @@ class FashionAIArgParser(resnet.ArgParser):
 def main(argv):
     parser = FashionAIArgParser()
     parser.set_defaults(data_dir='/tmp/data/fashionAI',
-                        model_dir='./model_skirt2',
-                        resnet_size=32,
-                        train_epochs=250,
-                        epochs_between_evals=10,
-                        batch_size=128)
+                        model_dir='./model_skirt_pretrain',
+                        train_epochs=30,
+                        pretrain_warm_vars='^((?!dense).)*$')
 
     flags = parser.parse_args(args=argv[1:])
 

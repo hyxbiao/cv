@@ -37,6 +37,12 @@ class ClassifyEstimator(BaseEstimator):
     def new_model(self, features, labels, mode, params):
         raise NotImplementedError
 
+    def init_from_pretrain(self, mode):
+        # load pretrain model
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            pass
+        pass
+
     def model_fn(self, features, labels, mode, params):
         # Generate a summary node for the images
         tf.summary.image('images', features, max_outputs=6)

@@ -41,6 +41,7 @@ class ArgParser(argparse.ArgumentParser):
             parsers.ImageModelParser(),
             parsers.ExportParser(),
             parsers.BenchmarkParser(),
+            parsers.PreTrainParser(),
         ])
 
         self.add_argument(
@@ -93,6 +94,11 @@ class Runner(EstimatorRunner):
         # Set up a RunConfig to save checkpoint and set session config.
         run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,
                                                     session_config=session_config)
+        ws = None
+        if self.flags.pretrain_model_dir:
+            ws = tf.estimator.WarmStartSettings(
+                ckpt_to_initialize_from=self.flags.pretrain_model_dir,
+                vars_to_warm_start=self.flags.pretrain_warm_vars)
         classifier = tf.estimator.Estimator(
             model_fn=self.model_function, model_dir=self.flags.model_dir, config=run_config,
             params={
@@ -101,7 +107,8 @@ class Runner(EstimatorRunner):
               'batch_size': self.flags.batch_size,
               'multi_gpu': self.flags.multi_gpu,
               'version': self.flags.version,
-            })
+            },
+            warm_start_from=ws)
         return classifier
 
     def run(self):
