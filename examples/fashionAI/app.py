@@ -71,7 +71,7 @@ class FashionAIDataSet(resnet.DataSet):
         for data_dir, meta_file in metas:
             if convert:
                 converters = {
-                    'image': lambda x, data_dir=data_dir: os.path.join(data_dir, x),
+                    'image': lambda x, data_dir=data_dir: os.path.join(data_dir, *x.split('/')),
                 }
                 if mode != tf.estimator.ModeKeys.PREDICT:
                     converters['value'] = lambda x: x.index('y')
@@ -129,13 +129,13 @@ class FashionAIDataSet(resnet.DataSet):
         metas = []
         if mode == tf.estimator.ModeKeys.PREDICT:
             rank_data_dir = os.path.join(data_dir, 'rank')
-            metas.append((rank_data_dir, os.path.join(rank_data_dir, 'Tests/question.csv')))
+            metas.append((rank_data_dir, os.path.join(rank_data_dir, 'Tests', 'question.csv')))
         else:
             base_data_dir = os.path.join(data_dir, 'base')
-            metas.append((base_data_dir, os.path.join(base_data_dir, 'Annotations/label.csv')))
+            metas.append((base_data_dir, os.path.join(base_data_dir, 'Annotations', 'label.csv')))
 
             web_data_dir = os.path.join(data_dir, 'web')
-            metas.append((web_data_dir, os.path.join(web_data_dir, 'Annotations/skirt_length_labels.csv')))
+            metas.append((web_data_dir, os.path.join(web_data_dir, 'Annotations', 'skirt_length_labels.csv')))
         return metas
 
     '''
