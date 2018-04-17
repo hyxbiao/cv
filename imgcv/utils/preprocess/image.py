@@ -5,9 +5,13 @@ import sys
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
-VERTICAL_CENTER = 0
-VERTICAL_TOP    = 1
-VERTICAL_DOWN   = 2
+VERTICAL_TOP    = 0
+VERTICAL_CENTER = 1
+VERTICAL_BOTTOM = 2
+
+HORIZONTAL_LEFT     = 0
+HORIZONTAL_CENTER   = 1
+HORIZONTAL_RIGHT    = 2
 
 def decode_crop_and_flip(image_buffer, bbox, num_channels):
     """Crops the given image to a random part of the image, and randomly flips.
@@ -57,7 +61,32 @@ def decode_crop_and_flip(image_buffer, bbox, num_channels):
     cropped = tf.image.random_flip_left_right(cropped)
     return cropped
 
-def central_crop(image, crop_height, crop_width, vertical=VERTICAL_CENTER):
+def central_crop(image, crop_height, crop_width):
+    """Performs central crops of the given image list.
+
+    Args:
+        image: a 3-D image tensor
+        crop_height: the height of the image following the crop.
+        crop_width: the width of the image following the crop.
+
+    Returns:
+        3-D tensor with cropped image.
+    """
+    return region_crop(image, crop_height, crop_width)
+
+def top_left_crop(image, crop_height, crop_width):
+    return region_crop(image, crop_height, crop_width, vertical=VERTICAL_TOP, horizontal=HORIZONTAL_LEFT)
+
+def bottom_left_crop(image, crop_height, crop_width):
+    return region_crop(image, crop_height, crop_width, vertical=VERTICAL_BOTTOM, horizontal=HORIZONTAL_LEFT)
+
+def top_right_crop(image, crop_height, crop_width):
+    return region_crop(image, crop_height, crop_width, vertical=VERTICAL_TOP, horizontal=HORIZONTAL_RIGHT)
+
+def bottom_right_crop(image, crop_height, crop_width):
+    return region_crop(image, crop_height, crop_width, vertical=VERTICAL_BOTTOM, horizontal=HORIZONTAL_RIGHT)
+
+def region_crop(image, crop_height, crop_width, vertical=VERTICAL_CENTER, horizontal=HORIZONTAL_CENTER):
     """Performs central crops of the given image list.
 
     Args:
@@ -78,8 +107,15 @@ def central_crop(image, crop_height, crop_width, vertical=VERTICAL_CENTER):
         crop_top = 0
     else:
         crop_top = amount_to_be_cropped_h
+
     amount_to_be_cropped_w = (width - crop_width)
-    crop_left = amount_to_be_cropped_w // 2
+    if horizontal == HORIZONTAL_CENTER:
+        crop_left = amount_to_be_cropped_w // 2
+    elif horizontal == HORIZONTAL_LEFT:
+        crop_left = 0
+    else:
+        crop_left = amount_to_be_cropped_w
+
     return tf.slice(
         image, [crop_top, crop_left, 0], [crop_height, crop_width, -1])
 

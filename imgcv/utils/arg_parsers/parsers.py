@@ -293,6 +293,33 @@ class BenchmarkParser(argparse.ArgumentParser):
             )
 
 
+class PredictParser(argparse.ArgumentParser):
+    """Parsing options for predict.
+
+    """
+
+    def __init__(self, add_help=False, predict=True):
+        super(PredictParser, self).__init__(add_help=add_help)
+        if predict:
+            self.add_argument(
+                    "--predict", "-pd", action='store_true',
+                    default=False,
+                    help="[default: %(default)s] If set, switch predict mode",
+            )
+            self.add_argument(
+                    "--predict_output_dir", "-pod",
+                    help="[default: %(default)s] predict output dir",
+                    metavar="<POD>"
+            )
+            self.add_argument(
+                    "--predict_yield_single", "-pys", action='store_true',
+                    default=True,
+                    help="[default: %(default)s] predict output dir",
+            )
+
+
+
+
 class PreTrainParser(argparse.ArgumentParser):
     """PrTrain parser
 

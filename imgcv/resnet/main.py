@@ -41,6 +41,7 @@ class ArgParser(argparse.ArgumentParser):
             parsers.ImageModelParser(),
             parsers.ExportParser(),
             parsers.BenchmarkParser(),
+            parsers.PredictParser(),
             parsers.PreTrainParser(),
         ])
 
@@ -66,9 +67,9 @@ class Runner(EstimatorRunner):
         self.model_function = estimator.model_fn
         self.input_function = dataset.input_fn
         self.shape = shape
-        self.classifier = self.setup()
+        #self.classifier = self.setup()
 
-    def setup(self):
+    def run(self):
         # Using the Winograd non-fused algorithms provides a small performance boost.
         os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
 
@@ -109,14 +110,19 @@ class Runner(EstimatorRunner):
               'version': self.flags.version,
             },
             warm_start_from=ws)
-        return classifier
 
-    def run(self):
         if self.flags.benchmark_log_dir is not None:
             benchmark_logger = logger.BenchmarkLogger(self.flags.benchmark_log_dir)
             benchmark_logger.log_run_info("resnet")
         else:
             benchmark_logger = None
+
+        if self.flags.predict:
+            def input_fn_predict():
+                return self.input_function(tf.estimator.ModeKeys.PREDICT)
+            predict_outputs = classifier.predict(input_fn=input_fn_predict, 
+                    yield_single_examples=self.flags.predict_yield_single)
+            return predict_outputs
 
         for _ in range(self.flags.train_epochs // self.flags.epochs_between_evals):
             train_hooks = hooks_helper.get_train_hooks(
@@ -129,7 +135,7 @@ class Runner(EstimatorRunner):
             def input_fn_train():
                 return self.input_function(tf.estimator.ModeKeys.TRAIN, self.flags.epochs_between_evals)
 
-            self.classifier.train(input_fn=input_fn_train, hooks=train_hooks,
+            classifier.train(input_fn=input_fn_train, hooks=train_hooks,
                              max_steps=self.flags.max_train_steps)
 
             print('Starting to evaluate.')
@@ -143,7 +149,7 @@ class Runner(EstimatorRunner):
             # (which is generally unimportant in those circumstances) to terminate.
             # Note that eval will run for max_train_steps each loop, regardless of the
             # global_step count.
-            eval_results = self.classifier.evaluate(input_fn=input_fn_eval,
+            eval_results = classifier.evaluate(input_fn=input_fn_eval,
                                                steps=self.flags.max_train_steps)
             print(eval_results)
 
@@ -156,7 +162,7 @@ class Runner(EstimatorRunner):
             # Exports a saved model for the given classifier.
             input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
             self.shape, batch_size=self.flags.batch_size)
-            self.classifier.export_savedmodel(self.flags.export_dir, input_receiver_fn)
+            classifier.export_savedmodel(self.flags.export_dir, input_receiver_fn)
 
     def warn_on_multi_gpu_export(self, multi_gpu=False):
         """For the time being, multi-GPU mode does not play nicely with exporting."""
