@@ -317,32 +317,41 @@ class FashionAIRunner(resnet.Runner):
             return
         output = super(FashionAIRunner, self).run()
         if self.flags.predict:
-            df = self.dataset.get_raw_input(tf.estimator.ModeKeys.PREDICT, convert=False)
-            c = 0
-            #for r, v in zip(df, output):
-            for i, v in enumerate(output):
-                r = df.iloc[i]
-                prob = np.mean(v['probabilities'], axis=0)
-                pred_label = np.argmax(prob)
-                tf.logging.info(v)
-                tf.logging.info('image: %s, prob: %s, pred: %s', r['image'], prob, pred_label)
-                c += 1
-                if c >= 10:
-                    break
-                #tf.logging.info(v)
+            self.process_predict_output(output)
+
+    def process_predict_output(self, output):
+        df = self.dataset.get_raw_input(tf.estimator.ModeKeys.PREDICT, convert=False)
+        tf.logging.info('total count: %d', len(df))
+        writer = None
+        if self.flags.predict_output_dir:
+            filename = os.path.join(self.flags.predict_output_dir, 'output.csv')
+            writer = open(filename, 'w')
+        for i, v in enumerate(output):
+            r = df.iloc[i]
+            prob = np.mean(v['probabilities'], axis=0)
+            pred_label = np.argmax(prob)
+            prob_str = ';'.join(np.char.mod('%.4f', prob))
+            r['value'] = prob_str
+            tf.logging.info('[%d] image: %s, prob: %s, pred: %d', i, r['image'], prob_str, pred_label)
+            if writer:
+                writer.write('{},{},{}\n'.format(r['image'], r['key'], r['value']))
+                writer.flush()
+        if writer:
+            writer.close()
+        tf.logging.info('write to file done!')
 
     def _run_debug(self):
         if not self.flags.debug:
             return False
 
-        '''
+        df = self.dataset.train_df
+        print(len(df[df['value'] == 4]))
         print(self.dataset.train_df[:5])
         print(self.dataset.test_df[:5])
         print(self.dataset.train_num_images)
         print(self.dataset.test_num_images)
         print(self.dataset.num_classes)
         return True
-        '''
 
         ds = self.dataset.debug_fn()
         data = ds.make_one_shot_iterator().get_next()
