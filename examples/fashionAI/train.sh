@@ -10,7 +10,7 @@ now=`date +%Y%m%d_%H%M`
 model_dir=$base_model_dir/$now
 
 #pretrain_model_dir=models/skirt_length_labels/baseline/
-pretrain_model_dir=models/pretrain_resnet50/
+#pretrain_model_dir=models/pretrain_resnet50/
 pretrain_warm_vars='^((?!dense).)*$'
 
 #if [ "$attr_key" = "skirt_length_labels" ]; then
