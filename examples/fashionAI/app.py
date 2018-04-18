@@ -312,6 +312,10 @@ class FashionAIRunner(resnet.Runner):
         super(FashionAIRunner, self).__init__(flags, estimator, dataset, shape)
 
     def run(self):
+        config = tf.ConfigProto()
+        config.gpu_options.allow_growth = True
+        session = tf.Session(config=config)
+
         if self._run_debug():
             tf.logging.info('run debug finish')
             return
