@@ -37,6 +37,7 @@ class ArgParser(argparse.ArgumentParser):
     def __init__(self, resnet_size_choices=None):
         super(ArgParser, self).__init__(parents=[
             parsers.BaseParser(),
+            parsers.GPUParser(),
             parsers.PerformanceParser(),
             parsers.ImageModelParser(),
             parsers.ExportParser(),
@@ -91,6 +92,11 @@ class Runner(EstimatorRunner):
             inter_op_parallelism_threads=self.flags.inter_op_parallelism_threads,
             intra_op_parallelism_threads=self.flags.intra_op_parallelism_threads,
             allow_soft_placement=True)
+
+        if self.flags.gpu_allow_growth:
+            session_config.gpu_options.allow_growth = True
+        else:
+            session_config.gpu_options.per_process_gpu_memory_fraction = self.flags.gpu_memory_fraction
 
         # Set up a RunConfig to save checkpoint and set session config.
         run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,

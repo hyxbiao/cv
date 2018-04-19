@@ -1,28 +1,18 @@
 
-data_dir=${1:-$HOME/data/vision/fashionAI/}
-attr_key=${2:-skirt_length_labels}
+attr_key=${1:-skirt_length_labels}
+data_dir=${2:-~/data/vision/fashionAI/}
 pretrain_model_dir=${3:-models/pretrain_resnet50/}
-
-base_model_dir=models/$attr_key
-mkdir -p $base_model_dir
+model_dir=${4:-models/$attr_key/baseline}
 
 now=`date +%Y%m%d_%H%M` 
-model_dir=$base_model_dir/$now
 
-#pretrain_model_dir=models/skirt_length_labels/baseline/
-#pretrain_model_dir=models/pretrain_resnet50/
 pretrain_warm_vars='^((?!dense).)*$'
 
-#if [ "$attr_key" = "skirt_length_labels" ]; then
-#	pretrain_warm_vars='.*'
-#	pretrain_model_dir=model_skirt_pretrain/
-#fi
+log_dir=log/$attr_key
+mkdir -p $log_dir
 
-mkdir log
-
-
-echo "data_dir: $data_dir"
 echo "attr_key: $attr_key"
+echo "data_dir: $data_dir"
 echo "model_dir: $model_dir"
 echo "pretrain_model_dir: $pretrain_model_dir"
 echo "pretrain_warm_vars: $pretrain_warm_vars"
@@ -33,4 +23,4 @@ nohup python app.py \
 	--attr_key $attr_key \
 	--pretrain_model_dir $pretrain_model_dir \
 	--pretrain_warm_vars $pretrain_warm_vars \
-	>log/${attr_key}_${now}.out 2>&1 &
+	>$log_dir/train_${now}.out 2>&1 &

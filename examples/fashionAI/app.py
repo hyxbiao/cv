@@ -128,7 +128,7 @@ class FashionAIDataSet(resnet.DataSet):
         """Returns a list of filenames."""
         metas = []
         if mode == tf.estimator.ModeKeys.PREDICT:
-            rank_data_dir = os.path.join(data_dir, 'rank')
+            rank_data_dir = os.path.join(data_dir, 'z_rank')
             metas.append((rank_data_dir, os.path.join(rank_data_dir, 'Tests', 'question.csv')))
         else:
             base_data_dir = os.path.join(data_dir, 'base')
@@ -312,9 +312,14 @@ class FashionAIRunner(resnet.Runner):
         super(FashionAIRunner, self).__init__(flags, estimator, dataset, shape)
 
     def run(self):
+        '''
         config = tf.ConfigProto()
-        config.gpu_options.allow_growth = True
+        if self.flags.gpu_allow_growth:
+            config.gpu_options.allow_growth = True
+        else:
+            config.gpu_options.per_process_gpu_memory_fraction = self.flags.gpu_memory_fraction
         session = tf.Session(config=config)
+        '''
 
         if self._run_debug():
             tf.logging.info('run debug finish')
