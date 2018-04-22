@@ -126,7 +126,7 @@ class Runner(EstimatorRunner):
         if self.flags.predict:
             def input_fn_predict():
                 return self.input_function(tf.estimator.ModeKeys.PREDICT)
-            predict_outputs = classifier.predict(input_fn=input_fn_predict, 
+            predict_outputs = classifier.predict(input_fn=input_fn_predict,
                     yield_single_examples=self.flags.predict_yield_single)
             return predict_outputs
 
@@ -136,7 +136,7 @@ class Runner(EstimatorRunner):
                 batch_size=self.flags.batch_size,
                 benchmark_log_dir=self.flags.benchmark_log_dir)
 
-            print('Starting a training cycle.')
+            tf.logging.info('Starting a training cycle.')
 
             def input_fn_train():
                 return self.input_function(tf.estimator.ModeKeys.TRAIN, self.flags.epochs_between_evals)
@@ -144,7 +144,7 @@ class Runner(EstimatorRunner):
             classifier.train(input_fn=input_fn_train, hooks=train_hooks,
                              max_steps=self.flags.max_train_steps)
 
-            print('Starting to evaluate.')
+            tf.logging.info('Starting to evaluate.')
             # Evaluate the model and print results
             def input_fn_eval():
                 return self.input_function(tf.estimator.ModeKeys.EVAL, 1)
@@ -157,7 +157,7 @@ class Runner(EstimatorRunner):
             # global_step count.
             eval_results = classifier.evaluate(input_fn=input_fn_eval,
                                                steps=self.flags.max_train_steps)
-            print(eval_results)
+            tf.logging.info(eval_results)
 
             if benchmark_logger:
                 benchmark_logger.log_estimator_evaluation_result(eval_results)
