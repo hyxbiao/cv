@@ -48,6 +48,7 @@ class Cifar10DataSet(resnet.DataSet):
 
     def get_filenames(self, is_training, data_dir):
         """Returns a list of filenames."""
+        data_dir = os.path.expanduser(data_dir)
         data_dir = os.path.join(data_dir, 'cifar-10-batches-bin')
 
         assert os.path.exists(data_dir), (
@@ -168,7 +169,7 @@ class Cifar10Estimator(resnet.Estimator):
 
 def main(argv):
     parser = resnet.ArgParser()
-    parser.set_defaults(data_dir='/tmp/cifar10_data',
+    parser.set_defaults(data_dir='~/data/vision/cifar10_data/',
                         model_dir='./model_cifar10',
                         resnet_size=32,
                         train_epochs=250,
