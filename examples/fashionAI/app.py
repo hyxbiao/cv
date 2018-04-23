@@ -10,7 +10,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import tensorflow as tf  # pylint: disable=g-bad-import-order
-from imgcv import resnet
+from imgcv.classification import resnet
 from imgcv.utils import preprocess as pp
 
 _RESIZE_MIN = 256
@@ -174,7 +174,7 @@ class FashionAIDataSet(resnet.DataSet):
             image = tf.image.random_flip_left_right(crop_image)
         elif mode == tf.estimator.ModeKeys.EVAL:
             image = pp.image.central_crop(small_image, HEIGHT, WIDTH)
-            
+
         image.set_shape([HEIGHT, WIDTH, NUM_CHANNELS])
 
         #image = tf.image.per_image_standardization(image)
@@ -368,7 +368,7 @@ class FashionAIRunner(resnet.Runner):
         tf.logging.info(data)
 
         writer = tf.summary.FileWriter('./debug')
-        
+
         with tf.Session() as sess:
             for step in range(10):
                 sops = []
@@ -425,7 +425,7 @@ def main(argv):
 
     dataset = FashionAIDataSet(flags)
 
-    estimator = FashionAIEstimator(flags, 
+    estimator = FashionAIEstimator(flags,
             train_num_images=dataset.train_num_images,
             num_classes=dataset.num_classes)
 

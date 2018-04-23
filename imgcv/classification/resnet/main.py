@@ -29,7 +29,7 @@ import os
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from imgcv.runner import EstimatorRunner
-from imgcv.resnet.model import Model
+from imgcv.classification.resnet.model import Model
 from imgcv.utils.arg_parsers import parsers
 from imgcv.utils.logs import hooks_helper
 

@@ -6,7 +6,7 @@ import os
 import sys
 
 from imgcv.estimator import ClassifyEstimator
-from imgcv.resnet import Model
+from imgcv.classification.resnet import Model
 
 class Estimator(ClassifyEstimator):
 

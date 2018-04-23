@@ -4,7 +4,7 @@ import os
 import sys
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
-from imgcv import resnet
+from imgcv.classification import resnet
 
 HEIGHT = 32
 WIDTH = 32
