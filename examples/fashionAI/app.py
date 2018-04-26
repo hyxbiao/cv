@@ -12,6 +12,7 @@ import pandas as pd
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 from imgcv.classification import resnet
 from imgcv.utils import preprocess as pp
+import web
 
 _RESIZE_MIN = 256
 
@@ -321,6 +322,8 @@ class FashionAIRunner(resnet.Runner):
         session = tf.Session(config=config)
         '''
 
+        if self._run_display():
+            return
         if self._run_debug():
             tf.logging.info('run debug finish')
             return
@@ -348,6 +351,31 @@ class FashionAIRunner(resnet.Runner):
         if writer:
             writer.close()
         tf.logging.info('write to file done!')
+
+    def _run_display(self):
+        if not self.flags.display:
+            return False
+        web.start_server(proxy=self, static_path=self.flags.data_dir)
+        return True
+
+    def on_dataset(self, page, size):
+        from_index = page * size
+        to_index = (page + 1) * size
+        df = self.dataset.train_df
+        df = df[from_index:to_index]
+        items = []
+        for index, row in df.iterrows():
+            item = {
+                'id': index,
+                'title': row['image'].rsplit('/', 1)[1],
+                'image': '/img' + row['image'],
+                'attr': {
+                    'class': row['key'],
+                    'label': row['value']
+                }
+            }
+            items.append(item)
+        return items
 
     def _run_debug(self):
         if not self.flags.debug:
@@ -410,6 +438,11 @@ class FashionAIArgParser(resnet.ArgParser):
                 "sleeve_length_labels", "neck_design_labels", "coat_length_labels",
                 "lapel_design_labels", "pant_length_labels"],
             help='[default: %(default)s] Attribute key'
+        )
+        self.add_argument(
+            '--display', action='store_true',
+            default=False,
+            help='Display'
         )
 
 
