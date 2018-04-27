@@ -51,9 +51,6 @@ class FashionAIDataSet(resnet.DataSet):
         self.train_df = df.sample(frac=0.9, random_state=1)
         self.test_df = df.drop(self.train_df.index)
 
-        #self.train_label = self.train_df.pop('value')
-        #self.test_label = self.test_df.pop('value')
-
     @property
     def num_classes(self):
         return self._num_classes
@@ -121,7 +118,10 @@ class FashionAIDataSet(resnet.DataSet):
         elif mode == tf.estimator.ModeKeys.EVAL:
             df = self.test_df
         elif mode == tf.estimator.ModeKeys.PREDICT:
-            df = self.load_meta_data(mode, convert)
+            if self.flags.predict_input_file:
+                df = pd.DataFrame(data={'image': [self.flags.predict_input_file]})
+            else:
+                df = self.load_meta_data(mode, convert)
 
         return df
 
@@ -313,15 +313,6 @@ class FashionAIRunner(resnet.Runner):
         super(FashionAIRunner, self).__init__(flags, estimator, dataset, shape)
 
     def run(self):
-        '''
-        config = tf.ConfigProto()
-        if self.flags.gpu_allow_growth:
-            config.gpu_options.allow_growth = True
-        else:
-            config.gpu_options.per_process_gpu_memory_fraction = self.flags.gpu_memory_fraction
-        session = tf.Session(config=config)
-        '''
-
         if self._run_display():
             return
         if self._run_debug():
@@ -358,10 +349,49 @@ class FashionAIRunner(resnet.Runner):
         web.start_server(proxy=self, static_path=self.flags.data_dir)
         return True
 
-    def on_dataset(self, page, size):
+    def get_dataframe(self, mode):
+        if mode == 'train':
+            mode = tf.estimator.ModeKeys.TRAIN
+        elif mode == 'test':
+            mode = tf.estimator.ModeKeys.EVAL
+        else:
+            mode = tf.estimator.ModeKeys.PREDICT
+        df = self.dataset.get_raw_input(mode)
+        return df
+
+    def on_dataset_transfer(self, mode, index):
+        pass
+
+    def on_dataset_data(self, mode, index, method):
+        df = self.get_dataframe(mode)
+        row = df.loc[index, :]
+        #image = self.dataset.parse_record(mode, row)
+
+        image_buffer = tf.read_file(row['image'])
+
+        raw_image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
+        image = pp.image.aspect_preserving_resize(raw_image, _RESIZE_MIN)
+        if method == 'topleft':
+            image = pp.image.top_left_crop(image, HEIGHT, WIDTH)
+        elif method == 'topright':
+            image = pp.image.top_right_crop(image, HEIGHT, WIDTH)
+        elif method == 'bottomleft':
+            image = pp.image.bottom_left_crop(image, HEIGHT, WIDTH)
+        elif method == 'bottomright':
+            image = pp.image.bottom_right_crop(image, HEIGHT, WIDTH)
+        else:
+            image = tf.random_crop(image, [HEIGHT, WIDTH, NUM_CHANNELS])
+        image = tf.cast(image, dtype=tf.uint8)
+        image = tf.image.encode_jpeg(image)
+
+        with tf.Session() as sess:
+            return sess.run(image)
+
+    def on_dataset_index(self, mode, page, size):
+        df = self.get_dataframe(mode)
+
         from_index = page * size
         to_index = (page + 1) * size
-        df = self.dataset.train_df
         df = df[from_index:to_index]
         items = []
         for index, row in df.iterrows():
@@ -440,6 +470,10 @@ class FashionAIArgParser(resnet.ArgParser):
             help='[default: %(default)s] Attribute key'
         )
         self.add_argument(
+            "--predict_input_file",
+            help="Predict input file",
+        )
+        self.add_argument(
             '--display', action='store_true',
             default=False,
             help='Display'
@@ -468,8 +502,4 @@ def main(argv):
 
 if __name__ == '__main__':
     tf.logging.set_verbosity(tf.logging.INFO)
-    #log = logging.getLogger('tensorflow')
-    #formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    #log.setFormatter(formatter)
-
     main(argv=sys.argv)

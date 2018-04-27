@@ -13,12 +13,37 @@ class MainHandler(tornado.web.RequestHandler):
 
 
 class DataSetHandler(tornado.web.RequestHandler):
-    def get(self):
+    def get(self, path):
+        logging.info('path: {}'.format(path))
+        if path == 'transfer':
+            return self.transfer()
+        elif path == 'data':
+            return self.data()
+        else:
+            return self.index()
+
+    def index(self):
+        mode = str(self.get_argument('dataset', 'train', True))
         page = int(self.get_argument('page', 0, True))
         size = int(self.get_argument('size', 6, True))
         logging.info('page: {}, size: {}'.format(page, size))
-        data = self.application.proxy.on_dataset(page, size)
+        data = self.application.proxy.on_dataset_index(mode, page, size)
+        logging.info('data: {}'.format(data))
         self.write({'data': data})
+
+    def transfer(self):
+        mode = str(self.get_argument('dataset', 'train', True))
+        index = int(self.get_argument('index', 0, True))
+        data = self.application.proxy.on_dataset_transfer(mode, index)
+        self.write({'data': data})
+
+    def data(self):
+        mode = str(self.get_argument('dataset', 'train', True))
+        index = int(self.get_argument('index', 0, True))
+        method = str(self.get_argument('method', 'random', True))
+        logging.info('method: {}'.format(method))
+        data = self.application.proxy.on_dataset_data(mode, index, method)
+        self.write(data)
 
 
 class ImageHandler(tornado.web.RequestHandler):
@@ -41,7 +66,7 @@ class Application(tornado.web.Application):
         )
         handlers = [
             (r"/",              MainHandler),
-            (r"/dataset",       DataSetHandler),
+            (r"/dataset/(.*)",       DataSetHandler),
             (r'/img(/.*)',      ImageHandler),
         ]
         super(Application, self).__init__(handlers, debug=debug, **settings)
