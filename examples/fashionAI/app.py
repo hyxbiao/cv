@@ -13,6 +13,7 @@ import tensorflow as tf  # pylint: disable=g-bad-import-order
 from imgcv.classification import resnet
 from imgcv.utils import preprocess as pp
 import web
+from tornado import gen
 
 _RESIZE_MIN = 256
 
@@ -96,6 +97,7 @@ class FashionAIDataSet(resnet.DataSet):
     def input_fn(self, mode, num_epochs=1):
         #is_training = (mode == tf.estimator.ModeKeys.TRAIN)
         #examples_per_epoch = is_training and NUM_IMAGES['train'] or NUM_IMAGES['validation']
+        tf.logging.info('input function ==============================')
         shuffle_buffer = _SHUFFLE_BUFFER
 
         df = self.get_raw_input(mode)
@@ -138,15 +140,6 @@ class FashionAIDataSet(resnet.DataSet):
             web_data_dir = os.path.join(data_dir, 'web')
             metas.append((web_data_dir, os.path.join(web_data_dir, 'Annotations', 'skirt_length_labels.csv')))
         return metas
-
-    '''
-    def parse_csv_record(self, mode, value):
-        label = tf.cast(label, dtype=tf.int32)
-        image_buffer = tf.read_file(meta['image'])
-        if self.flags.debug:
-            return {'path': meta['image'], 'image': image_buffer, 'label': label}
-        return {'image': image_buffer, 'label': label}
-    '''
 
     def parse_record(self, mode, record):
         image_buffer = tf.read_file(record['image'])
@@ -303,7 +296,6 @@ class FashionAIEstimator(resnet.Estimator):
 
     def model_fn(self, features, labels, mode, params):
         tf.logging.info(features)
-        tf.logging.info(labels)
         return super(FashionAIEstimator, self).model_fn(features, labels, mode, params)
 
 
@@ -347,23 +339,24 @@ class FashionAIRunner(resnet.Runner):
         if not self.flags.display:
             return False
         web.start_server(proxy=self, static_path=self.flags.data_dir)
+        #self.on_dataset_index('predict', True, 0, 9)
         return True
 
-    def get_dataframe(self, mode):
+    def get_mode(self, mode):
         if mode == 'train':
             mode = tf.estimator.ModeKeys.TRAIN
         elif mode == 'test':
             mode = tf.estimator.ModeKeys.EVAL
         else:
             mode = tf.estimator.ModeKeys.PREDICT
-        df = self.dataset.get_raw_input(mode)
-        return df
+        return mode
 
     def on_dataset_transfer(self, mode, index):
         pass
 
     def on_dataset_data(self, mode, index, method):
-        df = self.get_dataframe(mode)
+        mode = self.get_mode(mode)
+        df = self.dataset.get_raw_input(mode)
         row = df.loc[index, :]
         #image = self.dataset.parse_record(mode, row)
 
@@ -387,13 +380,26 @@ class FashionAIRunner(resnet.Runner):
         with tf.Session() as sess:
             return sess.run(image)
 
-    def on_dataset_index(self, mode, page, size):
-        df = self.get_dataframe(mode)
+    @gen.coroutine
+    def on_dataset_index(self, mode, predict, page, size):
+        mode = self.get_mode(mode)
+        df = self.dataset.get_raw_input(mode)
 
         from_index = page * size
         to_index = (page + 1) * size
         df = df[from_index:to_index]
+        if predict:
+            def input_fn(mode, df=df, parser=self.dataset, num_parallel_calls=self.flags.num_parallel_calls):
+                dataset = tf.data.Dataset.from_tensor_slices(dict(df))
+                dataset = dataset.map(lambda value: parser.parse_record(mode, value),
+                                    num_parallel_calls=num_parallel_calls)
+                return dataset
+            self.input_function = input_fn
+            self.flags.predict = True
+            output = super(FashionAIRunner, self).run()
+
         items = []
+        i = 0
         for index, row in df.iterrows():
             item = {
                 'id': index,
@@ -404,8 +410,20 @@ class FashionAIRunner(resnet.Runner):
                     'label': row['value']
                 }
             }
+            if predict:
+                v = next(output)
+                prob = np.mean(v['probabilities'], axis=0)
+                pred = np.argmax(prob)
+                probs = np.char.mod('%.4f', prob)
+                #prob_str = ';'.join(np.char.mod('%.4f', prob))
+                item['predict'] = {
+                    'pred': pred,
+                    'probs': probs.tolist(),
+                }
             items.append(item)
-        return items
+            i += 1
+        #return items
+        raise gen.Return(items)
 
     def _run_debug(self):
         if not self.flags.debug:

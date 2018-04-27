@@ -3,7 +3,9 @@
 
 import tornado.ioloop
 import tornado.web
+import tornado.httpserver
 import tornado.options
+from tornado import gen
 import logging
 import json
 
@@ -13,30 +15,35 @@ class MainHandler(tornado.web.RequestHandler):
 
 
 class DataSetHandler(tornado.web.RequestHandler):
+    @gen.coroutine
     def get(self, path):
         logging.info('path: {}'.format(path))
         if path == 'transfer':
-            return self.transfer()
+            yield self.transfer()
         elif path == 'data':
-            return self.data()
+            yield self.data()
         else:
-            return self.index()
+            yield self.index()
 
+    @gen.coroutine
     def index(self):
         mode = str(self.get_argument('dataset', 'train', True))
         page = int(self.get_argument('page', 0, True))
         size = int(self.get_argument('size', 6, True))
-        logging.info('page: {}, size: {}'.format(page, size))
-        data = self.application.proxy.on_dataset_index(mode, page, size)
+        predict = int(self.get_argument('predict', 0, True)) == 1
+        logging.info('predict: {}, page: {}, size: {}'.format(predict, page, size))
+        data = yield self.application.proxy.on_dataset_index(mode, predict, page, size)
         logging.info('data: {}'.format(data))
         self.write({'data': data})
 
+    @gen.coroutine
     def transfer(self):
         mode = str(self.get_argument('dataset', 'train', True))
         index = int(self.get_argument('index', 0, True))
         data = self.application.proxy.on_dataset_transfer(mode, index)
         self.write({'data': data})
 
+    @gen.coroutine
     def data(self):
         mode = str(self.get_argument('dataset', 'train', True))
         index = int(self.get_argument('index', 0, True))
@@ -47,6 +54,7 @@ class DataSetHandler(tornado.web.RequestHandler):
 
 
 class ImageHandler(tornado.web.RequestHandler):
+    @gen.coroutine
     def get(self, path):
         self.set_header('Content-Type', '')
         with open(path , 'rb') as file:
@@ -76,7 +84,10 @@ def start_server(proxy, static_path, port=8100):
 
     #tornado.options.parse_command_line()
     tornado.log.enable_pretty_logging()
-    app = Application(proxy, static_path)
-    app.listen(port)
+
+    app = Application(proxy, static_path, False)
+    server = tornado.httpserver.HTTPServer(app)
+    server.bind(port)
+    server.start(0)  # autodetect number of cores and fork a process for each
 
     tornado.ioloop.IOLoop.current().start()
