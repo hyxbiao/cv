@@ -6,15 +6,32 @@ import os
 import sys
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
-from imgcv.dataset import EstimatorDataSet
+
+class BaseDataSet(object):
+
+    def __init__(self, flags):
+        self.flags = flags
+
+
+class EstimatorDataSet(BaseDataSet):
+
+    def __init__(self, flags):
+        super(EstimatorDataSet, self).__init__(flags)
+
+    def input_fn(self, mode, num_epochs=1):
+        raise NotImplementedError
+
+    def parse_record(self, mode, record):
+        raise NotImplementedError
+
 
 class DataSet(EstimatorDataSet):
 
     def __init__(self, flags):
         super(DataSet, self).__init__(flags)
         self.batch_size = flags.batch_size
-        self.multi_gpu = flags.multi_gpu 
-        self.num_parallel_calls = flags.num_parallel_calls 
+        self.multi_gpu = flags.multi_gpu
+        self.num_parallel_calls = flags.num_parallel_calls
 
     def process(self, dataset, mode, shuffle_buffer, num_epochs, examples_per_epoch):
         is_training = (mode == tf.estimator.ModeKeys.TRAIN)

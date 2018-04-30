@@ -4,7 +4,9 @@ import os
 import sys
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
-from imgcv.classification import resnet
+from imgcv.dataset import DataSet
+from imgcv import classification as cls
+from imgcv.models import resnet
 
 HEIGHT = 32
 WIDTH = 32
@@ -21,7 +23,7 @@ NUM_IMAGES = {
 }
 
 
-class Cifar10DataSet(resnet.DataSet):
+class Cifar10DataSet(DataSet):
     def __init__(self, flags):
         super(Cifar10DataSet, self).__init__(flags)
 
@@ -131,11 +133,17 @@ class Cifar10Model(resnet.Model):
             data_format=data_format)
 
 
-class Cifar10Estimator(resnet.Estimator):
+class Cifar10Estimator(cls.Estimator):
     def __init__(self, flags):
-        super(Cifar10Estimator, self).__init__(flags, model_class=Cifar10Model, weight_decay=2e-4)
+        super(Cifar10Estimator, self).__init__(flags, weight_decay=2e-4)
 
         self.batch_size = flags.batch_size
+
+    def new_model(self, features, labels, mode, params):
+        resnet_size = self.flags.resnet_size
+        data_format = self.flags.data_format
+        model = Cifar10Model(resnet_size, data_format)
+        return model
 
     def loss_filter_fn(self, name):
         return True
@@ -168,43 +176,23 @@ class Cifar10Estimator(resnet.Estimator):
 
 
 def main(argv):
-    parser = resnet.ArgParser()
+    parser = cls.ArgParser()
     parser.set_defaults(data_dir='~/data/vision/cifar10_data/',
                         model_dir='./model_cifar10',
                         resnet_size=32,
-                        train_epochs=250,
+                        #train_epochs=250,
+                        train_epochs=10,
                         epochs_between_evals=10,
                         batch_size=128)
 
     flags = parser.parse_args(args=argv[1:])
+    tf.logging.info('flags: %s', flags)
 
     estimator = Cifar10Estimator(flags)
 
     dataset = Cifar10DataSet(flags)
 
-
-    '''
-    mode = tf.estimator.ModeKeys.TRAIN
-    ds = dataset.input_fn(mode, 1)
-    #data = ds.make_one_shot_iterator().get_next()
-    #with tf.Session() as sess:
-    #    data = sess.run([data])
-    #print(data)
-    #return
-    image, label = ds.make_one_shot_iterator().get_next()
-    with tf.Session() as sess:
-        image, label = sess.run([image, label])
-
-    print('image')
-    print(image)
-    #features = tf.reshape(features, [-1, HEIGHT, WIDTH, NUM_CHANNELS])
-    print(label)
-
-    return
-    '''
-
-    runner = resnet.Runner(flags, estimator, dataset)
-    #runner = resnet.Runner(flags, estimator.model_fn, dataset.synth_input_fn)
+    runner = cls.Runner(flags, estimator, dataset)
     runner.run()
 
 

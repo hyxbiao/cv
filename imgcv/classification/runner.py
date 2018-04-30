@@ -1,24 +1,3 @@
-# Copyright 2017 The TensorFlow Authors. All Rights Reserved.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-# ==============================================================================
-"""Contains utility and supporting functions for ResNet.
-
-  This module contains ResNet code which does not directly build layers. This
-includes dataset management, hyperparameter and optimizer code, and argument
-parsing. Code for defining the ResNet layers can be found in resnet_model.py.
-"""
-
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -29,12 +8,11 @@ import os
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from imgcv.runner import EstimatorRunner
-from imgcv.classification.resnet.model import Model
 from imgcv.utils.arg_parsers import parsers
 from imgcv.utils.logs import hooks_helper
 
 class ArgParser(argparse.ArgumentParser):
-    def __init__(self, resnet_size_choices=None):
+    def __init__(self):
         super(ArgParser, self).__init__(parents=[
             parsers.BaseParser(),
             parsers.GPUParser(),
@@ -46,19 +24,6 @@ class ArgParser(argparse.ArgumentParser):
             parsers.PreTrainParser(),
         ])
 
-        self.add_argument(
-            '--version', '-v', type=int, choices=[1, 2],
-            default=Model.DEFAULT_VERSION,
-            help='Version of ResNet. (1 or 2) See README.md for details.'
-        )
-
-        self.add_argument(
-            '--resnet_size', '-rs', type=int, default=50,
-            choices=resnet_size_choices,
-            help='[default: %(default)s] The size of the ResNet model to use.',
-            metavar='<RS>' if resnet_size_choices is None else None
-        )
-
 
 class Runner(EstimatorRunner):
 
@@ -69,9 +34,16 @@ class Runner(EstimatorRunner):
         self.input_function = dataset.input_fn
         self.shape = shape
         #self.classifier = self.setup()
-        #self.setup()
 
     def run(self):
+        self.setup()
+        if self.flags.predict:
+            return self.predict()
+        self.train()
+        if self.flags.export_dir is not None:
+            self.export()
+
+    def setup(self):
         # Using the Winograd non-fused algorithms provides a small performance boost.
         os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
 
@@ -110,28 +82,16 @@ class Runner(EstimatorRunner):
         self.classifier = tf.estimator.Estimator(
             model_fn=self.model_function, model_dir=self.flags.model_dir, config=run_config,
             params={
-              'resnet_size': self.flags.resnet_size,
-              'data_format': self.flags.data_format,
-              'batch_size': self.flags.batch_size,
-              'multi_gpu': self.flags.multi_gpu,
-              'version': self.flags.version,
             },
             warm_start_from=ws)
 
         if self.flags.benchmark_log_dir is not None:
             self.benchmark_logger = logger.BenchmarkLogger(self.flags.benchmark_log_dir)
-            self.benchmark_logger.log_run_info("resnet")
+            self.benchmark_logger.log_run_info("runner")
         else:
             self.benchmark_logger = None
 
-    #def run(self):
-        if self.flags.predict:
-            def input_fn_predict():
-                return self.input_function(tf.estimator.ModeKeys.PREDICT)
-            predict_outputs = self.classifier.predict(input_fn=input_fn_predict,
-                    yield_single_examples=self.flags.predict_yield_single)
-            return predict_outputs
-
+    def train(self):
         for _ in range(self.flags.train_epochs // self.flags.epochs_between_evals):
             train_hooks = hooks_helper.get_train_hooks(
                 self.flags.hooks,
@@ -164,13 +124,20 @@ class Runner(EstimatorRunner):
             if self.benchmark_logger:
                 self.benchmark_logger.log_estimator_evaluation_result(eval_results)
 
-        if self.flags.export_dir is not None:
-            self.warn_on_multi_gpu_export(self.flags.multi_gpu)
+    def predict(self):
+        def input_fn_predict():
+            return self.input_function(tf.estimator.ModeKeys.PREDICT)
+        predict_outputs = self.classifier.predict(input_fn=input_fn_predict,
+                yield_single_examples=self.flags.predict_yield_single)
+        return predict_outputs
 
-            # Exports a saved model for the given classifier.
-            input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
-            self.shape, batch_size=self.flags.batch_size)
-            self.classifier.export_savedmodel(self.flags.export_dir, input_receiver_fn)
+    def export(self):
+        self.warn_on_multi_gpu_export(self.flags.multi_gpu)
+
+        # Exports a saved model for the given classifier.
+        input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
+        self.shape, batch_size=self.flags.batch_size)
+        self.classifier.export_savedmodel(self.flags.export_dir, input_receiver_fn)
 
     def warn_on_multi_gpu_export(self, multi_gpu=False):
         """For the time being, multi-GPU mode does not play nicely with exporting."""

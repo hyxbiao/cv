@@ -10,7 +10,9 @@ import argparse
 import numpy as np
 import pandas as pd
 import tensorflow as tf  # pylint: disable=g-bad-import-order
-from imgcv.classification import resnet
+from imgcv.dataset import DataSet
+from imgcv import classification as cls
+from imgcv.models import resnet
 from imgcv.utils import preprocess as pp
 import web
 from tornado import gen
@@ -26,21 +28,10 @@ _CHANNEL_MEANS = [_R_MEAN, _G_MEAN, _B_MEAN]
 HEIGHT = 224
 WIDTH = 224
 NUM_CHANNELS = 3
-'''
-DEFAULT_IMAGE_BYTES = HEIGHT * WIDTH * NUM_CHANNELS
-# The record is the image plus a one-byte label
-RECORD_BYTES = DEFAULT_IMAGE_BYTES + 1
-NUM_CLASSES = 6
-
-NUM_IMAGES = {
-    'train': 10110,
-    'validation': 1153,
-}
-'''
 _SHUFFLE_BUFFER = 1500
 
 
-class FashionAIDataSet(resnet.DataSet):
+class FashionAIDataSet(DataSet):
     CSV_TYPES = [[''], [''], ['']]
     CSV_COLUMN_NAMES = ['image', 'key', 'value']
 
@@ -97,7 +88,6 @@ class FashionAIDataSet(resnet.DataSet):
     def input_fn(self, mode, num_epochs=1):
         #is_training = (mode == tf.estimator.ModeKeys.TRAIN)
         #examples_per_epoch = is_training and NUM_IMAGES['train'] or NUM_IMAGES['validation']
-        tf.logging.info('input function ==============================')
         shuffle_buffer = _SHUFFLE_BUFFER
 
         df = self.get_raw_input(mode)
@@ -224,53 +214,19 @@ class FashionAIModel(resnet.Model):
             version=version,
             data_format=data_format)
 
-    def get_block_sizes(self, resnet_size):
-        """Retrieve the size of each block_layer in the ResNet model.
 
-        The number of block layers used for the Resnet model varies according
-        to the size of the model. This helper grabs the layer set we want, throwing
-        an error if a non-standard size has been selected.
-
-        Args:
-            resnet_size: The number of convolutional layers needed in the model.
-
-        Returns:
-            A list of block sizes to use in building the model.
-
-        Raises:
-            KeyError: if invalid resnet_size is received.
-        """
-        choices = {
-          18: [2, 2, 2, 2],
-          34: [3, 4, 6, 3],
-          50: [3, 4, 6, 3],
-          101: [3, 4, 23, 3],
-          152: [3, 8, 36, 3],
-          200: [3, 24, 36, 3]
-        }
-
-        try:
-            return choices[resnet_size]
-        except KeyError:
-            err = ('Could not find layers for selected Resnet size.\n'
-                   'Size received: {}; sizes allowed: {}.'.format(
-                       resnet_size, choices.keys()))
-            raise ValueError(err)
-
-
-class FashionAIEstimator(resnet.Estimator):
+class FashionAIEstimator(cls.Estimator):
     def __init__(self, flags, train_num_images, num_classes):
-        super(FashionAIEstimator, self).__init__(flags, model_class=FashionAIModel, weight_decay=1e-4)
+        super(FashionAIEstimator, self).__init__(flags, weight_decay=1e-4)
 
         self.train_num_images = train_num_images
         self.num_classes = num_classes
         self.batch_size = flags.batch_size
 
     def new_model(self, features, labels, mode, params):
-        resnet_size=params['resnet_size']
-        data_format=params['data_format']
-        version=params['version']
-        model = self.model_class(resnet_size, data_format, num_classes=self.num_classes, version=version)
+        resnet_size = self.flags.resnet_size
+        data_format = self.flags.data_format
+        model = FashionAIModel(resnet_size, data_format, num_classes=self.num_classes)
         return model
 
     def optimizer_fn(self, learning_rate):
@@ -299,7 +255,7 @@ class FashionAIEstimator(resnet.Estimator):
         return super(FashionAIEstimator, self).model_fn(features, labels, mode, params)
 
 
-class FashionAIRunner(resnet.Runner):
+class FashionAIRunner(cls.Runner):
     def __init__(self, flags, estimator, dataset):
         shape = None
         super(FashionAIRunner, self).__init__(flags, estimator, dataset, shape)
@@ -471,9 +427,21 @@ class FashionAIRunner(resnet.Runner):
         return True
 
 
-class FashionAIArgParser(resnet.ArgParser):
-    def __init__(self):
+class FashionAIArgParser(cls.ArgParser):
+    def __init__(self, resnet_size_choices=None):
         super(FashionAIArgParser, self).__init__()
+        self.add_argument(
+            '--version', '-v', type=int, choices=[1, 2],
+            default=resnet.Model.DEFAULT_VERSION,
+            help='Version of ResNet. (1 or 2) See README.md for details.'
+        )
+
+        self.add_argument(
+            '--resnet_size', '-rs', type=int, default=50,
+            choices=resnet_size_choices,
+            help='[default: %(default)s] The size of the ResNet model to use.',
+            metavar='<RS>' if resnet_size_choices is None else None
+        )
         self.add_argument(
             '--debug', '-dg', action='store_true',
             default=False,
