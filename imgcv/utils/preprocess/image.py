@@ -2,8 +2,11 @@ from __future__ import print_function
 
 import os
 import sys
+import functools
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
+
+from imgcv.utils.preprocess import box
 
 VERTICAL_TOP    = 0
 VERTICAL_CENTER = 1
@@ -218,3 +221,127 @@ def resize_image(image, height, width):
     return tf.image.resize_images(
         image, [height, width], method=tf.image.ResizeMethod.BILINEAR,
         align_corners=False)
+
+def random_horizontal_flip(image,
+                        boxes=None,
+                        seed=None,
+                        ):
+    """Randomly flips the image and detections horizontally.
+
+    The probability of flipping the image is 50%.
+
+    Args:
+        image: rank 3 float32 tensor with shape [height, width, channels].
+        boxes: (optional) rank 2 float32 tensor with shape [N, 4]
+                     containing the bounding boxes.
+                     Boxes are in normalized form meaning their coordinates vary
+                     between [0, 1].
+                     Each row is in the form of [ymin, xmin, ymax, xmax].
+        masks: (optional) rank 3 float32 tensor with shape
+                     [num_instances, height, width] containing instance masks. The masks
+                     are of the same height, width as the input `image`.
+        keypoints: (optional) rank 3 float32 tensor with shape
+                             [num_instances, num_keypoints, 2]. The keypoints are in y-x
+                             normalized coordinates.
+        keypoint_flip_permutation: rank 1 int32 tensor containing the keypoint flip
+                                                             permutation.
+        seed: random seed
+        preprocess_vars_cache: PreprocessorCache object that records previously
+                                                     performed augmentations. Updated in-place. If this
+                                                     function is called multiple times with the same
+                                                     non-null cache, it will perform deterministically.
+
+    Returns:
+        image: image which is the same shape as input image.
+
+        If boxes, masks, keypoints, and keypoint_flip_permutation are not None,
+        the function also returns the following tensors.
+
+        boxes: rank 2 float32 tensor containing the bounding boxes -> [N, 4].
+                     Boxes are in normalized form meaning their coordinates vary
+                     between [0, 1].
+        masks: rank 3 float32 tensor with shape [num_instances, height, width]
+                     containing instance masks.
+        keypoints: rank 3 float32 tensor with shape
+                             [num_instances, num_keypoints, 2]
+
+    Raises:
+        ValueError: if keypoints are provided but keypoint_flip_permutation is not.
+    """
+
+    def _flip_image(image):
+        # flip image
+        image_flipped = tf.image.flip_left_right(image)
+        return image_flipped
+
+    with tf.name_scope('RandomHorizontalFlip', values=[image, boxes]):
+        result = []
+        # random variable defining whether to do flip or not
+        generator_func = functools.partial(tf.random_uniform, [], seed=seed)
+        do_a_flip_random = generator_func()
+        do_a_flip_random = tf.greater(do_a_flip_random, 0.5)
+
+        # flip image
+        image = tf.cond(do_a_flip_random, lambda: _flip_image(image), lambda: image)
+        result.append(image)
+
+        # flip boxes
+        if boxes is not None:
+            boxes = tf.cond(do_a_flip_random, lambda: box.flip_boxes_left_right(boxes),
+                                            lambda: boxes)
+            result.append(boxes)
+
+        return tuple(result)
+
+def strict_random_crop_image(image, boxes, labels,
+                            min_object_covered=1.0,
+                            aspect_ratio_range=(0.75, 1.33),
+                            area_range=(0.1, 1.0),
+                            overlap_thresh=0.3):
+    with tf.name_scope('RandomCropImage', values=[image, boxes]):
+        image_shape = tf.shape(image)
+
+        # boxes are [N, 4]. Lets first make them [N, 1, 4].
+        boxes_expanded = tf.expand_dims(
+                tf.clip_by_value(boxes, clip_value_min=0.0, clip_value_max=1.0), 1)
+
+        generator_func = functools.partial(
+                tf.image.sample_distorted_bounding_box,
+                image_shape,
+                bounding_boxes=boxes_expanded,
+                min_object_covered=min_object_covered,
+                aspect_ratio_range=aspect_ratio_range,
+                area_range=area_range,
+                max_attempts=100,
+                use_image_if_no_bounding_boxes=True)
+
+        im_box_begin, im_box_size, im_box = generator_func()
+
+        new_image = tf.slice(image, im_box_begin, im_box_size)
+        new_image.set_shape([None, None, image.get_shape()[2]])
+
+        # [1, 4]
+        im_box_rank2 = tf.squeeze(im_box, squeeze_dims=[0])
+        # [4]
+        im_box_rank1 = tf.squeeze(im_box)
+
+        # remove boxes that are outside cropped image
+        boxes, inside_window_ids = box.prune_completely_outside_window(
+                boxes, im_box_rank1)
+        labels = tf.gather(labels, inside_window_ids )
+
+        # remove boxes that are outside image
+        overlapping_boxes, keep_ids = box.prune_non_overlapping_boxes(
+                boxes, im_box_rank2, overlap_thresh)
+        labels = tf.gather(labels, keep_ids)
+
+        # change the coordinate of the remaining boxes
+        new_labels = labels
+        new_boxes = box.change_coordinate_frame(overlapping_boxes, im_box_rank1)
+        new_boxes = tf.clip_by_value(
+                new_boxes, clip_value_min=0.0, clip_value_max=1.0)
+
+        result = [new_image, new_boxes, new_labels]
+
+        return tuple(result)
+

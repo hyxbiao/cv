@@ -5,7 +5,6 @@
 import os
 import sys
 
-import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 class BaseEstimator(object):
 
