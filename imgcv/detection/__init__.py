@@ -4,10 +4,12 @@ from imgcv.detection.runner import Runner
 from imgcv.detection.estimator import Estimator
 from imgcv.detection.anchor import SSDAnchorGenerator
 from imgcv.detection.box_coder import SSDBoxCoder
+from imgcv.detection.matcher import ArgMaxMatcher
 
 __all__ = [
     'ArgParser', 'Runner',
     'Estimator',
     'SSDAnchorGenerator',
     'SSDBoxCoder',
+    'ArgMaxMatcher',
 ]

@@ -30,7 +30,14 @@ class Estimator(BaseEstimator):
         model = self.new_model(features, labels, mode, params)
 
         resized_inputs, boxes_list, classes_list = model.get_inputs(features)
-        predictions_dict = model(resized_inputs, mode == tf.estimator.ModeKeys.TRAIN)
+        prediction_dict = model(resized_inputs, mode == tf.estimator.ModeKeys.TRAIN)
+
+        predictions = {
+            'box_encodings': prediction_dict['box_encodings'],
+            'class_predictions_with_background':
+                prediction_dict['class_predictions_with_background'],
+        }
+        sys.exit(0)
 
         if mode == tf.estimator.ModeKeys.PREDICT:
             #postprocess
@@ -44,8 +51,10 @@ class Estimator(BaseEstimator):
                     'predict': tf.estimator.export.PredictOutput(predictions)
                 })
 
-        loss = model.loss(predictions_dict, boxes_list, classes_list)
-        sys.exit(0)
+        loss_dict = model.loss(prediction_dict, boxes_list, classes_list)
+        for loss_tensor in loss_dict.values():
+            tf.losses.add_loss(loss_tensor)
+        loss = tf.losses.get_total_loss()
 
         if mode == tf.estimator.ModeKeys.TRAIN:
             global_step = tf.train.get_or_create_global_step()
@@ -66,13 +75,8 @@ class Estimator(BaseEstimator):
         else:
             train_op = None
 
-        accuracy = tf.metrics.accuracy(
-                tf.argmax(labels, axis=1), predictions['classes'])
-        metrics = {'accuracy': accuracy}
-
-        # Create a tensor named train_accuracy for logging purposes
-        tf.identity(accuracy[1], name='train_accuracy')
-        tf.summary.scalar('train_accuracy', accuracy[1])
+        #TODO: add eval
+        metrics = None
 
         return tf.estimator.EstimatorSpec(
             mode=mode,

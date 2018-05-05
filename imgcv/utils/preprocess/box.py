@@ -217,3 +217,24 @@ def get_center_coordinates_and_sizes(boxes, scope=None):
         ycenter = ymin + height / 2.
         xcenter = xmin + width / 2.
         return [ycenter, xcenter, height, width]
+
+def matched_iou(boxes1, boxes2, scope=None):
+    """Compute intersection-over-union between corresponding boxes in boxlists.
+
+    Args:
+        boxes1: BoxList holding N boxes
+        boxes2: BoxList holding N boxes
+        scope: name scope.
+
+    Returns:
+        a tensor with shape [N] representing pairwise iou scores.
+    """
+    with tf.name_scope(scope, 'MatchedIOU'):
+        intersections = matched_intersection(boxes1, boxes2)
+        areas1 = area(boxes1)
+        areas2 = area(boxes2)
+        unions = areas1 + areas2 - intersections
+        return tf.where(
+                tf.equal(intersections, 0.0),
+                tf.zeros_like(intersections), tf.truediv(intersections, unions))
+

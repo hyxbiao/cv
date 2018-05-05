@@ -18,6 +18,7 @@ from imgcv.utils import ops
 slim = tf.contrib.slim
 
 SSD_VGG_SIZE = 300
+NUM_CHANNELS = 3
 NUM_CLASSES = 20
 NUM_IMAGES = {
     'train': 5011,
@@ -31,7 +32,7 @@ class PascalVocDataSet(DetectionDataSet):
     def input_fn(self, mode, num_epochs=1):
         dataset = self.get_raw_dataset(mode, num_epochs)
 
-        input_queue = self.batch_queue(dataset)
+        input_queue = self.batch_queue(mode, dataset)
         batched_tensors = input_queue.dequeue()
         return batched_tensors, True
 
@@ -51,12 +52,12 @@ class PascalVocDataSet(DetectionDataSet):
         image_with_box = tf.image.draw_bounding_boxes(image, bboxes)
         tf.summary.image(name, image_with_box)
 
-    def batch_queue(self, dataset):
+    def batch_queue(self, mode, dataset):
         tensor_dict = dataset.make_one_shot_iterator().get_next()
 
         self.tf_summary_image(tensor_dict['image'], tensor_dict['groundtruth_boxes'], 'raw_image')
 
-        tensor_dict = self.preprocess(tensor_dict)
+        tensor_dict = self.preprocess(mode, tensor_dict)
 
         self.tf_summary_image(tensor_dict['image'], tensor_dict['groundtruth_boxes'], 'preprocess_image')
 
@@ -70,15 +71,18 @@ class PascalVocDataSet(DetectionDataSet):
             prefetch_queue_capacity=self.flags.prefetch_queue_capacity)
         return input_queue
 
-    def preprocess(self, tensor_dict):
+    def preprocess(self, mode, tensor_dict):
         image = tensor_dict['image']
         boxes = tensor_dict['groundtruth_boxes']
         labels = tensor_dict['groundtruth_classes']
 
-        image, boxes = pp.image.random_horizontal_flip(image, boxes)
+        #data_augmentation in training
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            image, boxes = pp.image.random_horizontal_flip(image, boxes)
 
-        image, boxes, labels = self.ssd_random_crop(image, boxes, labels)
+            image, boxes, labels = self.ssd_random_crop(image, boxes, labels)
 
+        ### move model preprocess here
         image = tf.image.resize_images(
             image, tf.stack([SSD_VGG_SIZE, SSD_VGG_SIZE]),
             method=tf.image.ResizeMethod.BILINEAR,
@@ -283,8 +287,6 @@ class PascalVocModel(ssd.SSDVGGModel):
         '''
         images = tf.stack(images)
         tf.logging.info(images)
-        tf.logging.info(location_gt)
-        tf.logging.info(classes_gt)
         return images, location_gt, classes_gt
 
 
@@ -306,25 +308,23 @@ class PascalVocEstimator(detection.Estimator):
         return model
 
     def optimizer_fn(self, learning_rate):
-        optimizer = tf.train.MomentumOptimizer(
-                learning_rate=learning_rate,
-                momentum=0.9)
+        optimizer = tf.train.RMSPropOptimizer(
+            learning_rate,
+            decay=0.9,
+            momentum=0.9,
+            epsilon=1.0)
+
         return optimizer
 
     def learning_rate_fn(self, global_step):
-        batch_denom = 256
-        boundary_epochs = [30, 60, 80, 90]
-        decay_rates = [1, 0.1, 0.01, 0.001, 1e-4]
+        learning_rate = tf.train.exponential_decay(
+            0.004,
+            global_step,
+            800720,
+            0.95,
+            staircase=True, name='learning_rate')
 
-        initial_learning_rate = 0.1 * self.batch_size / batch_denom
-        batches_per_epoch = self.train_num_images / self.batch_size
-
-        # Multiply the learning rate by 0.1 at 100, 150, and 200 epochs.
-        boundaries = [int(batches_per_epoch * epoch) for epoch in boundary_epochs]
-        vals = [initial_learning_rate * decay for decay in decay_rates]
-
-        global_step = tf.cast(global_step, tf.int32)
-        return tf.train.piecewise_constant(global_step, boundaries, vals)
+        return learning_rate
 
     def model_fn(self, features, labels, mode, params):
         return super(PascalVocEstimator, self).model_fn(features, labels, mode, params)
@@ -332,9 +332,10 @@ class PascalVocEstimator(detection.Estimator):
 
 class PascalVocRunner(detection.Runner):
     def __init__(self, flags, estimator, dataset):
-        super(PascalVocRunner, self).__init__(flags, estimator, dataset)
+        shape = [SSD_VGG_SIZE, SSD_VGG_SIZE, NUM_CHANNELS]
+        super(PascalVocRunner, self).__init__(flags, estimator, dataset, shape)
 
-    def run(self):
+    def _run(self):
         #self.debug_run()
         #return
 
@@ -375,7 +376,7 @@ class PascalVocRunner(detection.Runner):
 def main(argv):
     parser = detection.ArgParser()
     parser.set_defaults(data_dir='~/data/vision/pascal-voc/tfrecords/',
-                        model_dir='./model_test',
+                        model_dir='./models/pascal-voc',
                         train_epochs=10,
                         epochs_between_evals=10,
                         data_format='channels_last',

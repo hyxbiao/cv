@@ -29,6 +29,10 @@ class SSDBoxCoder(BoxCoder):
                 assert scalar > 0
         self._scale_factors = scale_factors
 
+    @property
+    def code_size(self):
+        return 4
+
     def encode(self, boxes, anchors):
         """Encode a box collection with respect to anchor collection.
 
@@ -87,4 +91,4 @@ class SSDBoxCoder(BoxCoder):
         xmin = xcenter - w / 2.
         ymax = ycenter + h / 2.
         xmax = xcenter + w / 2.
-        return box_list.BoxList(tf.transpose(tf.stack([ymin, xmin, ymax, xmax])))
+        return tf.transpose(tf.stack([ymin, xmin, ymax, xmax]))
