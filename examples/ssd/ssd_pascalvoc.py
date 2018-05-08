@@ -34,13 +34,42 @@ class PascalVocDataSet(DetectionDataSet):
 
         input_queue = self.batch_queue(mode, dataset)
         batched_tensors = input_queue.dequeue()
-        return batched_tensors, True
+        return self.get_inputs(batched_tensors)
+
+    def get_inputs(self, inputs):
+        label_id_offset = 1
+        def extract_images_and_targets(read_data):
+            """Extract images and targets from the input dict."""
+            image = read_data['image']
+            location_gt = read_data['groundtruth_boxes']
+            classes_gt = tf.cast(read_data['groundtruth_classes'], tf.int32)
+            classes_gt -= label_id_offset
+            classes_gt = ops.padded_one_hot_encoding(
+                    indices=classes_gt, depth=NUM_CLASSES, left_pad=0)
+            return (image, location_gt, classes_gt)
+
+        images, location_gt, classes_gt = zip(*map(extract_images_and_targets, inputs))
+
+        images = tf.stack(images)
+        features = {
+            'images': images
+        }
+        labels = {
+            'groundtruth_boxes': location_gt,
+            'groundtruth_classes': classes_gt,
+        }
+        tf.logging.info('images: %s', images)
+        return features, labels
 
     def get_raw_dataset(self, mode, num_epochs=1):
         data_dir = os.path.expanduser(self.flags.data_dir)
         filenames = [
             os.path.join(data_dir, 'trainval_merge.record'),
         ]
+        if mode == tf.estimator.ModeKeys.PREDICT:
+            filenames = [
+                os.path.join(data_dir, 'test.record'),
+            ]
         dataset = self.read_and_parse_dataset(filenames, num_epochs)
         return dataset
 
@@ -237,15 +266,6 @@ class PascalVocDataSet(DetectionDataSet):
             filenames, num_epochs)
         return dataset
 
-    def get_raw_input(self, data_dir):
-        data_dir = os.path.expanduser(data_dir)
-        filenames = [
-            os.path.join(data_dir, 'trainval_merge.record'),
-        ]
-        dataset = tf.data.TFRecordDataset(filenames,
-                buffer_size=8 * 1000 * 1000)
-        return dataset
-
     def parse_record(self, decoder, record):
         serialized_example = tf.reshape(record, shape=[])
         keys = decoder.list_items()
@@ -257,42 +277,12 @@ class PascalVocDataSet(DetectionDataSet):
 
 
 class PascalVocModel(ssd.SSDVGGModel):
-
-    def get_inputs(self, inputs):
-        label_id_offset = 1
-        def extract_images_and_targets(read_data):
-            """Extract images and targets from the input dict."""
-            image = read_data['image']
-            location_gt = read_data['groundtruth_boxes']
-            classes_gt = tf.cast(read_data['groundtruth_classes'], tf.int32)
-            classes_gt -= label_id_offset
-            classes_gt = ops.padded_one_hot_encoding(
-                    indices=classes_gt, depth=self.num_classes, left_pad=0)
-            return (image, location_gt, classes_gt)
-
-        images, location_gt, classes_gt = zip(*map(extract_images_and_targets, inputs))
-
-        '''
-        preprocessed_images = []
-        true_image_shapes = []
-        for image in images:
-            resized_image = self.preprocess(image)
-            true_image_shape = tf.expand_dims(tf.stack(resized_image.shape.as_list()), 0)
-            preprocessed_images.append(resized_image)
-            true_image_shapes.append(true_image_shape)
-
-        images = tf.concat(preprocessed_images, 0)
-        true_image_shapes = tf.concat(true_image_shapes, 0)
-
-        '''
-        images = tf.stack(images)
-        tf.logging.info(images)
-        return images, location_gt, classes_gt
+    pass
 
 
 class PascalVocEstimator(detection.Estimator):
     def __init__(self, flags, train_num_images, num_classes):
-        super(PascalVocEstimator, self).__init__(flags, weight_decay=1e-4)
+        super(PascalVocEstimator, self).__init__(flags)
 
         self.train_num_images = train_num_images
         self.num_classes = num_classes
@@ -304,7 +294,9 @@ class PascalVocEstimator(detection.Estimator):
         model = PascalVocModel(
                     num_classes=self.num_classes,
                     anchor=anchor,
-                    box_coder=box_coder)
+                    box_coder=box_coder,
+                    weight_decay=4e-5,
+                    )
         return model
 
     def optimizer_fn(self, learning_rate):
@@ -318,16 +310,13 @@ class PascalVocEstimator(detection.Estimator):
 
     def learning_rate_fn(self, global_step):
         learning_rate = tf.train.exponential_decay(
-            0.004,
-            global_step,
-            800720,
-            0.95,
+            learning_rate=0.004,
+            global_step=global_step,
+            decay_steps=800720,
+            decay_rate=0.95,
             staircase=True, name='learning_rate')
 
         return learning_rate
-
-    def model_fn(self, features, labels, mode, params):
-        return super(PascalVocEstimator, self).model_fn(features, labels, mode, params)
 
 
 class PascalVocRunner(detection.Runner):
@@ -338,13 +327,18 @@ class PascalVocRunner(detection.Runner):
     def _run(self):
         #self.debug_run()
         #return
-
         self.setup()
         def input_fn_train():
-            return self.input_function(tf.estimator.ModeKeys.TRAIN, 1)
+            return self.input_function(tf.estimator.ModeKeys.TRAIN, self.flags.epochs_between_evals)
 
-        self.classifier.train(input_fn=input_fn_train,
-                         max_steps=1)
+        self.estimator.train(input_fn=input_fn_train,
+                         steps=2)
+        return
+
+        outputs = self.predict()
+        for output in outputs:
+            tf.logging.info(output)
+            break
 
     def debug_run(self):
         mode = tf.estimator.ModeKeys.TRAIN
@@ -376,9 +370,9 @@ class PascalVocRunner(detection.Runner):
 def main(argv):
     parser = detection.ArgParser()
     parser.set_defaults(data_dir='~/data/vision/pascal-voc/tfrecords/',
-                        model_dir='./models/pascal-voc',
+                        model_dir='./models/pascal-voc/experiment',
                         train_epochs=10,
-                        epochs_between_evals=10,
+                        epochs_between_evals=5,
                         data_format='channels_last',
 
                         #train

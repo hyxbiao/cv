@@ -110,6 +110,8 @@ def ssd_300_vgg(inputs,
                 net = slim.conv2d(net, 128, [1, 1], scope='conv1x1')
                 net = slim.conv2d(net, 256, [3, 3], scope='conv3x3', padding='VALID')
             end_points = slim.utils.convert_collection_to_dict(end_points_collection)
+            prefix_len = len(sc.original_name_scope)
+            end_points = dict((k[prefix_len:], end_points[k]) for k in end_points)
 
     return net, end_points
 
@@ -119,14 +121,11 @@ def extract_ssd_300_vgg_features(
         data_format='NHWC',
         weight_decay=0.0005,
         dropout_keep_prob=0.5):
-    scope = 'ssd_300_vgg'
     arg_scope = ssd_vgg_arg_scope(data_format, weight_decay=weight_decay)
     with slim.arg_scope(arg_scope):
         _, end_points = ssd_300_vgg(inputs,
                                     is_training=training,
-                                    dropout_keep_prob=dropout_keep_prob,
-                                    scope=scope)
-    image_features = []
+                                    dropout_keep_prob=dropout_keep_prob)
     layers = [
         #'conv1/conv1_2',
         #'conv2/conv2_2',
@@ -140,6 +139,11 @@ def extract_ssd_300_vgg_features(
         'block10/conv3x3',
         'block11/conv3x3',
     ]
-    image_features += [end_points['%s/%s' % (scope, layer)] for layer in layers]
+    image_features = [end_points[layer] for layer in layers]
+
+    #add l2 normalization in first feature map
+    axis = 3 if data_format == 'NHWC' else 1
+    feature_map = image_features[0]
+    image_features[0] = tf.nn.l2_normalize(feature_map, axis=axis)
 
     return image_features

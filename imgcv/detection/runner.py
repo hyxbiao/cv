@@ -72,9 +72,13 @@ class Runner(EstimatorRunner):
             session_config.gpu_options.per_process_gpu_memory_fraction = self.flags.gpu_memory_fraction
 
         # Set up a RunConfig to save checkpoint and set session config.
-        run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,
-                                                    session_config=session_config,
-                                                    keep_checkpoint_max=2)
+        run_config = tf.estimator.RunConfig().replace(
+                #save_checkpoints_secs=3600,
+                save_summary_steps=3,
+                save_checkpoints_steps=30,
+                log_step_count_steps=10,
+                session_config=session_config,
+                keep_checkpoint_max=3)
         ws = None
         if self.flags.pretrain_model_dir:
             ws = tf.estimator.WarmStartSettings(
@@ -94,7 +98,6 @@ class Runner(EstimatorRunner):
 
     def train(self, do_eval=False):
         for _ in range(self.flags.train_epochs // self.flags.epochs_between_evals):
-
             tf.logging.info('Starting a training cycle.')
 
             def input_fn_train():
@@ -134,7 +137,7 @@ class Runner(EstimatorRunner):
         self.warn_on_multi_gpu_export(self.flags.multi_gpu)
 
         # Exports a saved model for the given estimator.
-        input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
+        input_receiver_fn = export.build_serving_input_receiver_fn(
             self.shape, batch_size=self.flags.batch_size)
         self.estimator.export_savedmodel(self.flags.export_dir, input_receiver_fn)
 
