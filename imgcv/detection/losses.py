@@ -443,6 +443,7 @@ class HardExampleMiner(object):
     self._min_negatives_per_image = min_negatives_per_image
     if self._max_negatives_per_positive is not None:
       self._max_negatives_per_positive = float(self._max_negatives_per_positive)
+    self._num_max_positives_list = None
     self._num_positives_list = None
     self._num_negatives_list = None
 
@@ -482,6 +483,7 @@ class HardExampleMiner(object):
     """
     mined_location_losses = []
     mined_cls_losses = []
+    num_anchors = tf.shape(cls_losses)[1]
     location_losses = tf.unstack(location_losses)
     cls_losses = tf.unstack(cls_losses)
     detection_boxes = tf.unstack(detection_boxes)
@@ -494,8 +496,10 @@ class HardExampleMiner(object):
     if len(matches_list) != len(detection_boxes):
       raise ValueError('matches_list must either be None or have '
                        'length=len(detection_boxes).')
+    num_max_positives_list = []
     num_positives_list = []
     num_negatives_list = []
+    selected_mask_list = []
     for ind, box_locations in enumerate(detection_boxes):
       matches = matches_list[ind]
       image_losses = cls_losses[ind]
@@ -511,22 +515,29 @@ class HardExampleMiner(object):
       selected_indices = tf.image.non_max_suppression(
           box_locations, image_losses, num_hard_examples, self._iou_threshold)
       if self._max_negatives_per_positive is not None and matches is not None:
+        num_max_positives = tf.reduce_sum(tf.to_int32(tf.greater_equal(matches, 0)))
         (selected_indices, num_positives,
          num_negatives) = self._subsample_selection_to_desired_neg_pos_ratio(
              selected_indices, matches, self._max_negatives_per_positive,
              self._min_negatives_per_image)
+        num_max_positives_list.append(num_max_positives)
         num_positives_list.append(num_positives)
         num_negatives_list.append(num_negatives)
       mined_location_losses.append(
           tf.reduce_sum(tf.gather(location_losses[ind], selected_indices)))
       mined_cls_losses.append(
           tf.reduce_sum(tf.gather(cls_losses[ind], selected_indices)))
+      selected_mask = tf.sparse_to_dense(selected_indices,
+              [num_anchors], True, False, validate_indices=False)
+      selected_mask_list.append(selected_mask)
     location_loss = tf.reduce_sum(tf.stack(mined_location_losses))
     cls_loss = tf.reduce_sum(tf.stack(mined_cls_losses))
+    selected_masks = tf.stack(selected_mask_list)
     if matches is not None and self._max_negatives_per_positive:
+      self._num_max_positives_list = num_max_positives_list
       self._num_positives_list = num_positives_list
       self._num_negatives_list = num_negatives_list
-    return (location_loss, cls_loss)
+    return (location_loss, cls_loss, selected_masks)
 
   def summarize(self):
     """Summarize the number of positives and negatives after mining."""
@@ -539,6 +550,7 @@ class HardExampleMiner(object):
   def tensors_to_log(self):
     if self._num_positives_list and self._num_negatives_list:
       tensor_num = tf.stack([
+        tf.to_int32(self._num_max_positives_list),
         tf.to_int32(self._num_positives_list),
         tf.to_int32(self._num_negatives_list)
       ])

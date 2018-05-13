@@ -10,6 +10,7 @@ import tensorflow as tf  # pylint: disable=g-bad-import-order
 from imgcv.runner import EstimatorRunner
 from imgcv.utils.arg_parsers import parsers
 from imgcv.utils.export import export
+from tensorflow.python import debug as tf_debug
 
 class ArgParser(argparse.ArgumentParser):
     def __init__(self):
@@ -20,6 +21,7 @@ class ArgParser(argparse.ArgumentParser):
             parsers.ImageModelParser(),
             parsers.ExportParser(),
             parsers.BenchmarkParser(),
+            parsers.EvalParser(),
             parsers.PredictParser(),
             parsers.PreTrainParser(),
         ])
@@ -34,14 +36,17 @@ class Runner(EstimatorRunner):
         self.input_function = dataset.input_fn
         self.shape = shape
 
-    def run(self):
+    def _run(self, mode=None):
         self.setup()
         if self.flags.export_dir is not None:
             self.export()
             return
-        if self.flags.predict:
+        if mode == tf.estimator.ModeKeys.EVAL:
+            return self.evaluate()
+        elif mode == tf.estimator.ModeKeys.PREDICT:
             return self.predict()
-        self.train()
+        else:
+            self.train()
 
     def setup(self):
         # Using the Winograd non-fused algorithms provides a small performance boost.
@@ -74,7 +79,7 @@ class Runner(EstimatorRunner):
         # Set up a RunConfig to save checkpoint and set session config.
         run_config = tf.estimator.RunConfig().replace(
                 #save_checkpoints_secs=3600,
-                save_summary_steps=3,
+                save_summary_steps=2,
                 save_checkpoints_steps=30,
                 log_step_count_steps=10,
                 session_config=session_config,
@@ -96,35 +101,36 @@ class Runner(EstimatorRunner):
         else:
             self.benchmark_logger = None
 
-    def train(self, do_eval=False):
-        for _ in range(self.flags.train_epochs // self.flags.epochs_between_evals):
-            tf.logging.info('Starting a training cycle.')
+    def train(self):
+        hooks = [tf_debug.LocalCLIDebugHook(
+                dump_root=self.flags.dump_root
+            )] if self.flags.debug else None
+        tf.logging.info('Starting a training cycle.')
+        for _ in range(self.flags.train_epochs):
 
             def input_fn_train():
-                return self.input_function(tf.estimator.ModeKeys.TRAIN, self.flags.epochs_between_evals)
+                return self.input_function(tf.estimator.ModeKeys.TRAIN, self.flags.train_epochs)
 
-            self.estimator.train(input_fn=input_fn_train,
+            self.estimator.train(input_fn=input_fn_train, hooks=hooks,
                              max_steps=self.flags.max_train_steps)
 
-            if not do_eval:
-                continue
-            tf.logging.info('Starting to evaluate.')
-            # Evaluate the model and print results
-            def input_fn_eval():
-                return self.input_function(tf.estimator.ModeKeys.EVAL, 1)
+    def evaluate(self):
+        tf.logging.info('Starting to evaluate.')
+        # Evaluate the model and print results
+        def input_fn_eval():
+            return self.input_function(tf.estimator.ModeKeys.EVAL, 1)
 
-            # self.flags.max_train_steps is generally associated with testing and profiling.
-            # As a result it is frequently called with synthetic data, which will
-            # iterate forever. Passing steps=self.flags.max_train_steps allows the eval
-            # (which is generally unimportant in those circumstances) to terminate.
-            # Note that eval will run for max_train_steps each loop, regardless of the
-            # global_step count.
-            eval_results = self.estimator.evaluate(input_fn=input_fn_eval,
-                                               steps=self.flags.max_train_steps)
-            tf.logging.info(eval_results)
-
-            if self.benchmark_logger:
-                self.benchmark_logger.log_estimator_evaluation_result(eval_results)
+        # self.flags.max_train_steps is generally associated with testing and profiling.
+        # As a result it is frequently called with synthetic data, which will
+        # iterate forever. Passing steps=self.flags.max_train_steps allows the eval
+        # (which is generally unimportant in those circumstances) to terminate.
+        # Note that eval will run for max_train_steps each loop, regardless of the
+        # global_step count.
+        eval_results = self.estimator.evaluate(input_fn=input_fn_eval,
+                                           steps=self.flags.max_train_steps)
+        if self.benchmark_logger:
+            self.benchmark_logger.log_estimator_evaluation_result(eval_results)
+        return eval_results
 
     def predict(self):
         def input_fn_predict():

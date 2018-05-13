@@ -31,3 +31,31 @@ def combined_static_and_dynamic_shape(tensor):
       combined_shape.append(dynamic_tensor_shape[index])
   return combined_shape
 
+def assert_shape_equal(shape_a, shape_b):
+  """Asserts that shape_a and shape_b are equal.
+
+  If the shapes are static, raises a ValueError when the shapes
+  mismatch.
+
+  If the shapes are dynamic, raises a tf InvalidArgumentError when the shapes
+  mismatch.
+
+  Args:
+    shape_a: a list containing shape of the first tensor.
+    shape_b: a list containing shape of the second tensor.
+
+  Returns:
+    Either a tf.no_op() when shapes are all static and a tf.assert_equal() op
+    when the shapes are dynamic.
+
+  Raises:
+    ValueError: When shapes are both static and unequal.
+  """
+  if (all(isinstance(dim, int) for dim in shape_a) and
+      all(isinstance(dim, int) for dim in shape_b)):
+    if shape_a != shape_b:
+      raise ValueError('Unequal shapes {}, {}'.format(shape_a, shape_b))
+    else: return tf.no_op()
+  else:
+    return tf.assert_equal(shape_a, shape_b)
+

@@ -24,4 +24,8 @@ class EstimatorRunner(BaseRunner):
         self.dataset = dataset
 
     def run(self):
+        mode = tf.estimator.ModeKeys.TRAIN
+        return self._run(mode)
+
+    def _run(self, mode=None):
         raise NotImplementedError

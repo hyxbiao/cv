@@ -17,6 +17,11 @@ from imgcv.utils import ops
 
 slim = tf.contrib.slim
 
+# VGG mean parameters.
+_R_MEAN = 123.
+_G_MEAN = 117.
+_B_MEAN = 104.
+
 SSD_VGG_SIZE = 300
 NUM_CHANNELS = 3
 NUM_CLASSES = 20
@@ -24,6 +29,31 @@ NUM_IMAGES = {
     'train': 5011,
     'test': 4952,
 }
+
+VOC_LABELS = {
+    'none': (0, 'Background'),
+    'aeroplane': (1, 'Vehicle'),
+    'bicycle': (2, 'Vehicle'),
+    'bird': (3, 'Animal'),
+    'boat': (4, 'Vehicle'),
+    'bottle': (5, 'Indoor'),
+    'bus': (6, 'Vehicle'),
+    'car': (7, 'Vehicle'),
+    'cat': (8, 'Animal'),
+    'chair': (9, 'Indoor'),
+    'cow': (10, 'Animal'),
+    'diningtable': (11, 'Indoor'),
+    'dog': (12, 'Animal'),
+    'horse': (13, 'Animal'),
+    'motorbike': (14, 'Vehicle'),
+    'person': (15, 'Person'),
+    'pottedplant': (16, 'Indoor'),
+    'sheep': (17, 'Animal'),
+    'sofa': (18, 'Indoor'),
+    'train': (19, 'Vehicle'),
+    'tvmonitor': (20, 'Indoor'),
+}
+
 
 class PascalVocDataSet(DetectionDataSet):
     def __init__(self, flags):
@@ -41,22 +71,27 @@ class PascalVocDataSet(DetectionDataSet):
         def extract_images_and_targets(read_data):
             """Extract images and targets from the input dict."""
             image = read_data['image']
+            resized_image = read_data['resized_image']
             location_gt = read_data['groundtruth_boxes']
-            classes_gt = tf.cast(read_data['groundtruth_classes'], tf.int32)
+            labels_gt = tf.cast(read_data['groundtruth_classes'], tf.int32)
+            classes_gt = labels_gt
             classes_gt -= label_id_offset
             classes_gt = ops.padded_one_hot_encoding(
                     indices=classes_gt, depth=NUM_CLASSES, left_pad=0)
-            return (image, location_gt, classes_gt)
+            return (image, resized_image, location_gt, classes_gt, labels_gt)
 
-        images, location_gt, classes_gt = zip(*map(extract_images_and_targets, inputs))
+        images, resized_images, location_gt, \
+                classes_gt, labels_gt = zip(*map(extract_images_and_targets, inputs))
 
         images = tf.stack(images)
         features = {
-            'images': images
+            'images': images,
+            'resized_images': resized_images
         }
         labels = {
             'groundtruth_boxes': location_gt,
             'groundtruth_classes': classes_gt,
+            'groundtruth_labels': labels_gt,
         }
         tf.logging.info('images: %s', images)
         return features, labels
@@ -105,8 +140,9 @@ class PascalVocDataSet(DetectionDataSet):
         boxes = tensor_dict['groundtruth_boxes']
         labels = tensor_dict['groundtruth_classes']
 
+        tensor_dict['raw_image'] = image
         #data_augmentation in training
-        if mode == tf.estimator.ModeKeys.TRAIN:
+        if mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL:
             image, boxes = pp.image.random_horizontal_flip(image, boxes)
 
             image, boxes, labels = self.ssd_random_crop(image, boxes, labels)
@@ -116,6 +152,10 @@ class PascalVocDataSet(DetectionDataSet):
             image, tf.stack([SSD_VGG_SIZE, SSD_VGG_SIZE]),
             method=tf.image.ResizeMethod.BILINEAR,
             align_corners=False)
+
+        tensor_dict['resized_image'] = image
+
+        #image = pp.image.mean_image_subtraction(image, [_R_MEAN, _G_MEAN, _B_MEAN], 3)
 
         tensor_dict['image'] = image
         tensor_dict['groundtruth_boxes'] = boxes
@@ -282,7 +322,14 @@ class PascalVocModel(ssd.SSDVGGModel):
 
 class PascalVocEstimator(detection.Estimator):
     def __init__(self, flags, train_num_images, num_classes):
-        super(PascalVocEstimator, self).__init__(flags)
+        category_index = {}
+        for name in VOC_LABELS:
+            index = VOC_LABELS[name][0]
+            category_index[index] = {
+                'id': index,
+                'name': name
+            }
+        super(PascalVocEstimator, self).__init__(flags, category_index)
 
         self.train_num_images = train_num_images
         self.num_classes = num_classes
@@ -294,6 +341,7 @@ class PascalVocEstimator(detection.Estimator):
         model = PascalVocModel(
                     num_classes=self.num_classes,
                     anchor=anchor,
+                    score_fn=self.flags.score_fn,
                     box_coder=box_coder,
                     weight_decay=4e-5,
                     )
@@ -305,12 +353,20 @@ class PascalVocEstimator(detection.Estimator):
             decay=0.9,
             momentum=0.9,
             epsilon=1.0)
+        return optimizer
+
+    def optimizer_fn_1(self, learning_rate):
+        optimizer = tf.train.AdamOptimizer(
+            learning_rate,
+            epsilon=1.0)
 
         return optimizer
 
     def learning_rate_fn(self, global_step):
         learning_rate = tf.train.exponential_decay(
             learning_rate=0.004,
+            #learning_rate=0.0001,
+            #learning_rate=0.01,
             global_step=global_step,
             decay_steps=800720,
             decay_rate=0.95,
@@ -324,7 +380,27 @@ class PascalVocRunner(detection.Runner):
         shape = [SSD_VGG_SIZE, SSD_VGG_SIZE, NUM_CHANNELS]
         super(PascalVocRunner, self).__init__(flags, estimator, dataset, shape)
 
-    def _run(self):
+    def run_eval(self):
+        eval_results = self._run(mode=tf.estimator.ModeKeys.EVAL)
+        for k, v in iter(eval_results.items()):
+            if k.startswith('Loss'):
+                #tf.logging.info('[eval_results] %s: %s', k, v)
+                tf.logging.info('[eval_results] %s, value type: %s', k, type(v))
+            else:
+                tf.logging.info('[eval_results] %s, value type: %s', k, type(v))
+
+    def run(self):
+        if self.flags.export_dir is not None:
+            self._run()
+            return
+
+        if self.flags.eval:
+            return self._run(mode=tf.estimator.ModeKeys.EVAL)
+        if self.flags.predict:
+            return self.run_eval()
+        self._run(mode=tf.estimator.ModeKeys.TRAIN)
+
+    def run_tmp(self):
         #self.debug_run()
         #return
         self.setup()
@@ -369,6 +445,25 @@ class PascalVocRunner(detection.Runner):
 
 def main(argv):
     parser = detection.ArgParser()
+    parser.add_argument(
+        '--test', action='store_true',
+        default=False,
+        help='Test'
+    )
+    parser.add_argument(
+        '--debug', action='store_true',
+        default=False,
+        help='Debug'
+    )
+    parser.add_argument(
+        '--dump_root', default='./debug', help='Dump root'
+    )
+    parser.add_argument(
+        '--score_fn', choices=['sigmoid', 'softmax'],
+        default='sigmoid',
+        help='[default: %(default)s] Score function'
+    )
+
     parser.set_defaults(data_dir='~/data/vision/pascal-voc/tfrecords/',
                         model_dir='./models/pascal-voc/experiment',
                         train_epochs=10,
@@ -387,6 +482,8 @@ def main(argv):
                         prefetch_size=512,
                         num_readers=32,
                         read_block_length=32,
+
+                        #model
                         )
 
     flags = parser.parse_args(args=argv[1:])

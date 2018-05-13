@@ -287,6 +287,21 @@ class BenchmarkParser(argparse.ArgumentParser):
             )
 
 
+class EvalParser(argparse.ArgumentParser):
+    """Parsing options for eval.
+
+    """
+
+    def __init__(self, add_help=False, eval=True):
+        super(EvalParser, self).__init__(add_help=add_help)
+        if eval:
+            self.add_argument(
+                    "--eval", action='store_true',
+                    default=False,
+                    help="[default: %(default)s] If set, switch eval mode",
+            )
+
+
 class PredictParser(argparse.ArgumentParser):
     """Parsing options for predict.
 

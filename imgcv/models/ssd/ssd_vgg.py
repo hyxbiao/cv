@@ -117,14 +117,14 @@ def ssd_300_vgg(inputs,
 
 def extract_ssd_300_vgg_features(
         inputs,
-        training=True,
+        is_training=True,
         data_format='NHWC',
         weight_decay=0.0005,
         dropout_keep_prob=0.5):
     arg_scope = ssd_vgg_arg_scope(data_format, weight_decay=weight_decay)
     with slim.arg_scope(arg_scope):
         _, end_points = ssd_300_vgg(inputs,
-                                    is_training=training,
+                                    is_training=is_training,
                                     dropout_keep_prob=dropout_keep_prob)
     layers = [
         #'conv1/conv1_2',
@@ -139,11 +139,18 @@ def extract_ssd_300_vgg_features(
         'block10/conv3x3',
         'block11/conv3x3',
     ]
-    image_features = [end_points[layer] for layer in layers]
+    image_features = []
+    for layer in layers:
+        feature_map = end_points[layer]
+        tf.summary.histogram('activations/' + layer, feature_map)
+        tf.summary.scalar('sparsity/' + layer,
+                                        tf.nn.zero_fraction(feature_map))
+        image_features.append(feature_map)
+
 
     #add l2 normalization in first feature map
     axis = 3 if data_format == 'NHWC' else 1
-    feature_map = image_features[0]
-    image_features[0] = tf.nn.l2_normalize(feature_map, axis=axis)
+    #feature_map = image_features[0]
+    #image_features[0] = tf.nn.l2_normalize(feature_map, axis=axis)
 
     return image_features
