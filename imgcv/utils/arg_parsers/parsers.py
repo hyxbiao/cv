@@ -344,9 +344,15 @@ class PreTrainParser(argparse.ArgumentParser):
             )
             self.add_argument(
                     "--pretrain_warm_vars", "-pwv", default=".*",
-                    help="pretrain model warn start vars",
+                    help="Pretrain model warn start vars",
                     metavar="<PWV>"
             )
+            self.add_argument(
+                    '--pretrain_type', choices=['classification', 'detection'],
+                    default='classification',
+                    help='[default: %(default)s] Pretrain model type'
+            )
+
 
 
 class GPUParser(argparse.ArgumentParser):
@@ -375,4 +381,23 @@ class GPUParser(argparse.ArgumentParser):
                     help="If set, run across all available GPUs."
             )
 
+
+class DebugParser(argparse.ArgumentParser):
+    """Debug parser
+
+    Args:
+        add_help: Create the "--help" flag. False if class instance is a parent.
+    """
+
+    def __init__(self, add_help=False, debug=True):
+        super(DebugParser, self).__init__(add_help=add_help)
+        if debug:
+            self.add_argument(
+                '--tfdebug', action='store_true', default=False,
+                help='Tensorflow Debug'
+            )
+            self.add_argument(
+                '--tfdebug_dump_root', default=None,
+                help='Debug dump root'
+            )
 

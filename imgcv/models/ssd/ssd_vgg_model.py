@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import os
 import sys
+import re
 
 import tensorflow as tf
 from tensorflow.contrib.framework.python.ops import add_arg_scope
@@ -598,3 +599,45 @@ class SSDVGGModel(BaseModel):
         tf.summary.scalar('AvgNumIgnoredAnchorsPerImage',
                                             tf.reduce_mean(tf.to_float(ignored_anchors_per_image)),
                                             family='TargetAssignment')
+
+    def restore_map(self,
+                    fine_tune_checkpoint_type='detection',
+                    load_all_detection_checkpoint_vars=False):
+        """Returns a map of variables to load from a foreign checkpoint.
+
+        See parent class for details.
+
+        Args:
+            fine_tune_checkpoint_type: whether to restore from a full detection
+                checkpoint (with compatible variable names) or to restore from a
+                classification checkpoint for initialization prior to training.
+                Valid values: `detection`, `classification`. Default 'detection'.
+            load_all_detection_checkpoint_vars: whether to load all variables (when
+                 `from_detection_checkpoint` is True). If False, only variables within
+                 the appropriate scopes are included. Default False.
+
+        Returns:
+            A dict mapping variable names (to load from a checkpoint) to variables in
+            the model graph.
+        Raises:
+            ValueError: if fine_tune_checkpoint_type is neither `classification`
+                nor `detection`.
+        """
+        if fine_tune_checkpoint_type not in ['detection', 'classification']:
+            raise ValueError('Not supported fine_tune_checkpoint_type: {}'.format(
+                    fine_tune_checkpoint_type))
+        variables_to_restore = {}
+        for variable in tf.global_variables():
+            var_name = variable.op.name
+            if (fine_tune_checkpoint_type == 'detection' and
+                    load_all_detection_checkpoint_vars):
+                variables_to_restore[var_name] = variable
+            else:
+                if var_name.startswith(self._extract_features_scope):
+                    if fine_tune_checkpoint_type == 'classification':
+                        var_name = (
+                                re.split('^' + self._extract_features_scope + '/',
+                                                 var_name)[-1])
+                    variables_to_restore[var_name] = variable
+
+        return variables_to_restore

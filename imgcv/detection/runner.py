@@ -24,6 +24,7 @@ class ArgParser(argparse.ArgumentParser):
             parsers.EvalParser(),
             parsers.PredictParser(),
             parsers.PreTrainParser(),
+            parsers.DebugParser(),
         ])
 
 
@@ -85,7 +86,9 @@ class Runner(EstimatorRunner):
                 session_config=session_config,
                 keep_checkpoint_max=3)
         ws = None
-        if self.flags.pretrain_model_dir:
+        #TODO: remove later
+        #if self.flags.pretrain_model_dir:
+        if False:
             ws = tf.estimator.WarmStartSettings(
                 ckpt_to_initialize_from=self.flags.pretrain_model_dir,
                 vars_to_warm_start=self.flags.pretrain_warm_vars)
@@ -103,8 +106,8 @@ class Runner(EstimatorRunner):
 
     def train(self):
         hooks = [tf_debug.LocalCLIDebugHook(
-                dump_root=self.flags.dump_root
-            )] if self.flags.debug else None
+                dump_root=self.flags.tfdebug_dump_root
+            )] if self.flags.tfdebug else None
         tf.logging.info('Starting a training cycle.')
         for _ in range(self.flags.train_epochs):
 

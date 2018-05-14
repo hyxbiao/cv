@@ -148,9 +148,18 @@ def extract_ssd_300_vgg_features(
         image_features.append(feature_map)
 
 
-    #add l2 normalization in first feature map
+    #add l2 normalization and scale in first feature map
     axis = 3 if data_format == 'NHWC' else 1
-    #feature_map = image_features[0]
-    #image_features[0] = tf.nn.l2_normalize(feature_map, axis=axis)
+    feature_map = image_features[0]
+    feature_map = tf.nn.l2_normalize(feature_map, axis=axis)
+    num_channels = feature_map.get_shape().as_list()[axis]
+    scale = slim.model_variable('gamma',
+            shape=[num_channels],
+            initializer=tf.ones_initializer())
+    if data_format == 'NCHW':
+        scale = tf.expand_dims(scale, axis=-1)
+        scale = tf.expand_dims(scale, axis=-1)
+    feature_map = tf.multiply(feature_map, scale)
+    image_features[0] = feature_map
 
     return image_features

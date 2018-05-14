@@ -4,11 +4,13 @@
 
 import os
 import sys
+import re
 
 import tensorflow as tf  # pylint: disable=g-bad-import-order
 
 from imgcv.estimator import BaseEstimator
 from imgcv.utils import visualization_utils as vis_utils
+from imgcv.utils import variables_utils as var_utils
 
 
 class Estimator(BaseEstimator):
@@ -26,6 +28,20 @@ class Estimator(BaseEstimator):
 
     def new_model(self, features, labels, mode, params):
         raise NotImplementedError
+
+    def fine_tune_checkpoint(self, mode, model):
+        if mode != tf.estimator.ModeKeys.TRAIN:
+            return
+        if not self.flags.pretrain_model_dir:
+            return
+        var_map = model.restore_map(
+            fine_tune_checkpoint_type=self.flags.pretrain_type)
+        if tf.gfile.IsDirectory(self.flags.pretrain_model_dir):
+            last_checkpoint_path = tf.train.latest_checkpoint(self.flags.pretrain_model_dir)
+        else:
+            last_checkpoint_path = self.flags.pretrain_model_dir
+        available_var_map = var_utils.get_variables_available_in_checkpoint(var_map, last_checkpoint_path)
+        tf.train.init_from_checkpoint(last_checkpoint_path, available_var_map)
 
     def detection_hook(self, features, labels, mode,
             prediction_dict,
@@ -64,6 +80,9 @@ class Estimator(BaseEstimator):
         prediction_dict, detection_dict = model(features, mode == tf.estimator.ModeKeys.TRAIN)
 
         predictions = detection_dict
+
+        #fine tuning
+        self.fine_tune_checkpoint(mode, model)
 
         eval_image_summary = self.detection_hook(features, labels, mode, prediction_dict, detection_dict)
 
