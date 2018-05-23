@@ -15,6 +15,7 @@ class ArgParser(argparse.ArgumentParser):
     def __init__(self):
         super(ArgParser, self).__init__(parents=[
             parsers.BaseParser(),
+            parsers.BaseModelParser(),
             parsers.GPUParser(),
             parsers.PerformanceParser(),
             parsers.ImageModelParser(),
@@ -33,15 +34,18 @@ class Runner(EstimatorRunner):
         self.model_function = estimator.model_fn
         self.input_function = dataset.input_fn
         self.shape = shape
-        #self.classifier = self.setup()
 
-    def run(self):
+    def _run(self, mode=None):
         self.setup()
-        if self.flags.predict:
-            return self.predict()
-        self.train()
         if self.flags.export_dir is not None:
             self.export()
+            return
+        if mode == tf.estimator.ModeKeys.EVAL:
+            return self.evaluate()
+        elif mode == tf.estimator.ModeKeys.PREDICT:
+            return self.predict()
+        else:
+            self.train()
 
     def setup(self):
         # Using the Winograd non-fused algorithms provides a small performance boost.
@@ -106,23 +110,26 @@ class Runner(EstimatorRunner):
             self.classifier.train(input_fn=input_fn_train, hooks=train_hooks,
                              max_steps=self.flags.max_train_steps)
 
-            tf.logging.info('Starting to evaluate.')
-            # Evaluate the model and print results
-            def input_fn_eval():
-                return self.input_function(tf.estimator.ModeKeys.EVAL, 1)
+            self.evaluate()
 
-            # self.flags.max_train_steps is generally associated with testing and profiling.
-            # As a result it is frequently called with synthetic data, which will
-            # iterate forever. Passing steps=self.flags.max_train_steps allows the eval
-            # (which is generally unimportant in those circumstances) to terminate.
-            # Note that eval will run for max_train_steps each loop, regardless of the
-            # global_step count.
-            eval_results = self.classifier.evaluate(input_fn=input_fn_eval,
-                                               steps=self.flags.max_train_steps)
-            tf.logging.info(eval_results)
+    def evaluate(self):
+        tf.logging.info('Starting to evaluate.')
+        # Evaluate the model and print results
+        def input_fn_eval():
+            return self.input_function(tf.estimator.ModeKeys.EVAL, 1)
 
-            if self.benchmark_logger:
-                self.benchmark_logger.log_estimator_evaluation_result(eval_results)
+        # self.flags.max_train_steps is generally associated with testing and profiling.
+        # As a result it is frequently called with synthetic data, which will
+        # iterate forever. Passing steps=self.flags.max_train_steps allows the eval
+        # (which is generally unimportant in those circumstances) to terminate.
+        # Note that eval will run for max_train_steps each loop, regardless of the
+        # global_step count.
+        eval_results = self.estimator.evaluate(input_fn=input_fn_eval,
+                                           steps=self.flags.max_train_steps)
+        tf.logging.info(eval_results)
+        if self.benchmark_logger:
+            self.benchmark_logger.log_estimator_evaluation_result(eval_results)
+        return eval_results
 
     def predict(self):
         def input_fn_predict():
@@ -135,9 +142,9 @@ class Runner(EstimatorRunner):
         self.warn_on_multi_gpu_export(self.flags.multi_gpu)
 
         # Exports a saved model for the given classifier.
-        input_receiver_fn = export.build_tensor_serving_input_receiver_fn(
-        self.shape, batch_size=self.flags.batch_size)
-        self.classifier.export_savedmodel(self.flags.export_dir, input_receiver_fn)
+        input_receiver_fn = export.build_serving_input_receiver_fn(
+            self.shape, batch_size=self.flags.batch_size)
+        self.estimator.export_savedmodel(self.flags.export_dir, input_receiver_fn)
 
     def warn_on_multi_gpu_export(self, multi_gpu=False):
         """For the time being, multi-GPU mode does not play nicely with exporting."""

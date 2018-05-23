@@ -196,6 +196,24 @@ class PerformanceParser(argparse.ArgumentParser):
             )
 
 
+class BaseModelParser(argparse.ArgumentParser):
+    """Default parser for specification image specific behavior.
+
+    Args:
+        add_help: Create the "--help" flag. False if class instance is a parent.
+        data_format: Create a flag to specify image axis convention.
+    """
+
+    def __init__(self, add_help=False, score_fn=True):
+        super(BaseModelParser, self).__init__(add_help=add_help)
+        if score_fn:
+            self.add_argument(
+                    '--score_fn', choices=['sigmoid', 'softmax'],
+                    default='softmax',
+                    help='[default: %(default)s] Score function'
+            )
+
+
 class ImageModelParser(argparse.ArgumentParser):
     """Default parser for specification image specific behavior.
 

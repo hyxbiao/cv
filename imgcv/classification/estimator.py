@@ -38,9 +38,16 @@ class Estimator(BaseEstimator):
         model = self.new_model(features, labels, mode, params)
         logits = model(features, mode == tf.estimator.ModeKeys.TRAIN)
 
+        if self.flags.score_fn == 'sigmoid':
+            score_fn = tf.sigmoid
+            loss_fn = tf.losses.sigmoid_cross_entropy
+        else:
+            score_fn = tf.nn.softmax
+            loss_fn = tf.losses.softmax_cross_entropy
+
         predictions = {
             'classes': tf.argmax(logits, axis=1),
-            'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
+            'probabilities': score_fn(logits, name='prob_tensor')
         }
 
         if mode == tf.estimator.ModeKeys.PREDICT:
@@ -53,8 +60,7 @@ class Estimator(BaseEstimator):
                 })
 
         # Calculate loss, which includes softmax cross entropy and L2 regularization.
-        cross_entropy = tf.losses.softmax_cross_entropy(
-            logits=logits, onehot_labels=labels)
+        cross_entropy = loss_fn(labels, logits)
 
         # Create a tensor named cross_entropy for logging purposes.
         tf.identity(cross_entropy, name='cross_entropy')
