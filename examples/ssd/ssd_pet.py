@@ -103,6 +103,7 @@ def main(argv):
                         model_dir='./models/Oxford-IIIT-Pet/experiment',
                         train_file='pet_train_with_masks.record',
                         test_file='pet_val_with_masks.record',
+                        #pretrain_model_dir='pretrain/ssd_300_vgg.ckpt',
                         )
 
     flags = parser.parse_args(args=argv[1:])

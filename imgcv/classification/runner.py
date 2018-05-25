@@ -76,8 +76,12 @@ class Runner(EstimatorRunner):
             session_config.gpu_options.per_process_gpu_memory_fraction = self.flags.gpu_memory_fraction
 
         # Set up a RunConfig to save checkpoint and set session config.
-        run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9,
-                                                    session_config=session_config)
+        run_config = tf.estimator.RunConfig().replace(
+                save_summary_steps=2,
+                save_checkpoints_steps=30,
+                log_step_count_steps=10,
+                session_config=session_config,
+                keep_checkpoint_max=3)
         ws = None
         if self.flags.pretrain_model_dir:
             ws = tf.estimator.WarmStartSettings(
@@ -124,7 +128,7 @@ class Runner(EstimatorRunner):
         # (which is generally unimportant in those circumstances) to terminate.
         # Note that eval will run for max_train_steps each loop, regardless of the
         # global_step count.
-        eval_results = self.estimator.evaluate(input_fn=input_fn_eval,
+        eval_results = self.classifier.evaluate(input_fn=input_fn_eval,
                                            steps=self.flags.max_train_steps)
         tf.logging.info(eval_results)
         if self.benchmark_logger:
