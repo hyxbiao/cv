@@ -84,8 +84,9 @@ class Runner(EstimatorRunner):
                 keep_checkpoint_max=3)
         ws = None
         if self.flags.pretrain_model_dir:
+            pretrain_model_dir = os.path.expanduser(self.flags.pretrain_model_dir)
             ws = tf.estimator.WarmStartSettings(
-                ckpt_to_initialize_from=self.flags.pretrain_model_dir,
+                ckpt_to_initialize_from=pretrain_model_dir,
                 vars_to_warm_start=self.flags.pretrain_warm_vars)
         self.classifier = tf.estimator.Estimator(
             model_fn=self.model_function, model_dir=self.flags.model_dir, config=run_config,

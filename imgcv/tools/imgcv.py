@@ -71,7 +71,7 @@ class Application(object):
                 print('variable_name: {}, var: {}'.format(variable_name, var))
 
 
-def imgcv_run(argv=None):
+def main(argv=None):
 
     if argv is None:
         argv = sys.argv

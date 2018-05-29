@@ -18,7 +18,8 @@ setup(
     packages = find_packages(),
     entry_points={
         'console_scripts': [
-            'imgcv = imgcv.cmdline:imgcv_run',
+            'imgcv = imgcv.tools.imgcv:main',
+            'imgbrowser = imgcv.tools.imgbrowser:main',
         ]
     },
     install_requires = install_requires,

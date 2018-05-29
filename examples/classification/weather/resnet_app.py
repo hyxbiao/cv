@@ -15,7 +15,6 @@ from imgcv.dataset import DataSet
 from imgcv import classification as cls
 from imgcv.models import resnet
 from imgcv.utils import preprocess as pp
-from tornado import gen
 
 _RESIZE_MIN = 256
 
@@ -111,7 +110,8 @@ class WeatherDataSet(DataSet):
             if self.flags.predict_input_file:
                 df = pd.DataFrame(data={'image': [self.flags.predict_input_file]})
             else:
-                df = self.load_meta_data(mode, convert)
+                df = self.test_df
+                #df = self.load_meta_data(mode, convert)
 
         return df
 
@@ -137,6 +137,9 @@ class WeatherDataSet(DataSet):
     def preprocess_image(self, mode, image_buffer):
         raw_image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
         small_image = pp.image.aspect_preserving_resize(raw_image, _RESIZE_MIN)
+        #crop top
+        small_image = tf.slice(
+            small_image, [0, 0, 0], [HEIGHT, -1, -1])
         if mode == tf.estimator.ModeKeys.TRAIN:
             crop_image = tf.random_crop(small_image, [HEIGHT, WIDTH, NUM_CHANNELS])
             image = tf.image.random_flip_left_right(crop_image)
@@ -155,13 +158,13 @@ class WeatherDataSet(DataSet):
         raw_image = tf.image.decode_jpeg(image_buffer, channels=NUM_CHANNELS)
         image = pp.image.aspect_preserving_resize(raw_image, _RESIZE_MIN)
 
-        #image = tf.random_crop(small_image, [HEIGHT, WIDTH, NUM_CHANNELS])
+        #crop top
+        image = tf.slice(
+            image, [0, 0, 0], [HEIGHT, -1, -1])
         images = [
             pp.image.central_crop(image, HEIGHT, WIDTH),
             pp.image.top_left_crop(image, HEIGHT, WIDTH),
             pp.image.top_right_crop(image, HEIGHT, WIDTH),
-            pp.image.bottom_left_crop(image, HEIGHT, WIDTH),
-            pp.image.bottom_right_crop(image, HEIGHT, WIDTH),
         ]
         images += [tf.image.flip_left_right(image) for image in images]
         if self.flags.debug:
@@ -347,7 +350,7 @@ def main(argv):
                         model_dir='./models/experiment',
                         train_epochs=10,
                         predict_yield_single=False,
-                        pretrain_model_dir='./pretrain_resnet50',
+                        pretrain_model_dir='~/data/models/resnet50',
                         pretrain_warm_vars='^((?!dense).)*$')
 
     flags = parser.parse_args(args=argv[1:])
